@@ -4,8 +4,8 @@
 #include "utility.cuh"
 
 #define ull unsigned long long int
-#define BSIZE 64
-#define NB 2
+#define BSIZE 1024
+#define NB 100
 #define PROB 90
 
 
@@ -31,11 +31,11 @@ struct LFVector {
 
 __device__ LFVector::LFVector() {
 	size = 0;
-	a = (int**)malloc(sizeof(int)*100);
-	a[0] = (int*)malloc(sizeof(int*)*32);
-	isbucket = (int*)malloc(sizeof(int)*100);
+	a = (int**)malloc(sizeof(int*)*64);
+	a[0] = (int*)malloc(sizeof(int)*32);
+	isbucket = (int*)malloc(sizeof(int)*64);
 	isbucket[0] = 1;
-	for (int i = 1; i < 100; ++i) {
+	for (int i = 1; i < 64; ++i) {
 		a[i] = nullptr;
 		isbucket[i] = 0;
 	}
@@ -70,7 +70,7 @@ __device__ void LFVector::new_bucket(unsigned int b) {
 		int bsize = 1 << (5 + b);
 		a[b] = (int*)malloc(sizeof(int) * bsize);
 	}
-	__syncwarp();
+	__syncthreads();
 }
 
 __device__ void LFVector::push_back(int e) {
@@ -95,9 +95,6 @@ __device__ Vector::Vector() {
 	size = 0;
 	lfv = (LFVector*)malloc(sizeof(LFVector)*NB);
 	ranges = (unsigned int*)malloc(sizeof(unsigned int)*NB);
-	//LFVector a = LFVector();
-	//printf("LFV: %d lfv: %d  lfv0: %d\n",
-		//sizeof(LFVector) ,sizeof(lfv), sizeof(lfv[1]));
 	for (int i = 0; i < NB; ++i) {
 		ranges[i] = 0;
 		lfv[i] = LFVector();
@@ -123,6 +120,7 @@ __device__ void Vector::insert(int e) {
 
 __global__ void printVec(Vector *v) {
 	printf("size: %d\n", v->size);
+	return;
 	printf("ranges: ");
 	for (int i = 0; i < NB; ++i) {
 		printf("%d ", v->ranges[i]);
@@ -132,6 +130,7 @@ __global__ void printVec(Vector *v) {
 		printf("%d ", v->lfv[i].size);
 	}
 	printf("\n");
+	//return;
 	for (int i = 0; i < v->size; ++i) {
 		printf("%d ", v->at(i));
 	}
@@ -155,6 +154,21 @@ __global__ void test_insert(Vector *v) {
 	v->insert(tid);
 }
 
+__global__ void test_insert2(Vector *v) {
+	int tid = threadIdx.x;
+	int bs = v->lfv[blockIdx.x].size;
+	//printf("%d %d %d\n", tid, blockIdx.x, bs);
+	for (int i = tid; i < bs; i += BSIZE) {
+		v->insert(i);
+	}
+}
+
+__global__ void test_insert3(Vector *v) {
+	int tid = threadIdx.x;
+	for (int i = 0; i < 10; ++i) {
+		v->insert(tid);
+	}
+}
 
 __global__ void random_copy(LFVector *v) {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -167,8 +181,8 @@ __global__ void random_copy(LFVector *v) {
 
 __global__ void init_random(LFVector *v, int *A, int n) {
 	v->size = 0;
-	v->a = (int**)malloc(sizeof(int)*100);
-	v->a[0] = (int*)malloc(sizeof(int*)*32);
+	v->a = (int**)malloc(sizeof(int*)*100);
+	v->a[0] = (int*)malloc(sizeof(int)*32);
 	v->isbucket = (int*)malloc(sizeof(int)*100);
 	v->isbucket[0] = 1;
 	for (int i = 1; i < 100; ++i) {
@@ -206,15 +220,40 @@ void test_random_copy(LFVector *v, int n) {
 	printf("%f\n", time);
 }
 
+void run_experiment(Vector *v) {
+	int rep = 10;
+	initVec<<<1,1>>>(v); kernelCallCheck();
+	float results[10];
+	float s = 0.0;
+	for (int i = 0; i < rep; ++i) {
+		cudaEvent_t start, stop;
+		start_clock(start, stop);
+		test_insert2<<<NB, BSIZE>>>(v);
+		results[i] = stop_clock(start, stop);
+		s += results[i];
+	}
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results[i]);
+	}
+	printf("%f\n", results[rep-1]);
+	printf("%f\n", s);
+}
+
 int main(int argc, char **argv){
 
-	cudaDeviceSetLimit(cudaLimitMallocHeapSize, NB*BSIZE*sizeof(int));
+	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 1000*NB*BSIZE*sizeof(int));
+	cudaDeviceSetLimit(cudaLimitMallocHeapSize, INT_MAX*sizeof(int));
 
 	Vector *a;
 	gpuErrCheck( cudaMalloc(&a, sizeof(Vector)) );
 
+	run_experiment(a);
+	return 0;
+
 	initVec<<<1,1>>>(a); kernelCallCheck();
 	printVec<<<1,1>>>(a); kernelCallCheck();
-	test_insert<<<NB,BSIZE>>>(a); kernelCallCheck();
-	printVec<<<1,1>>>(a); kernelCallCheck();
+	for (int i = 0; i < 10; ++i) {
+		test_insert2<<<NB,BSIZE>>>(a); kernelCallCheck();
+		printVec<<<1,1>>>(a); kernelCallCheck();
+	}
 }
