@@ -98,7 +98,7 @@ struct Vector {
 	unsigned int *ranges;
 	__device__ Vector();
 	__device__ T& at(unsigned int i);
-	__device__ void insert(T e, int q);
+	__device__ void insert(T e);
 };
 
 template <typename T>
@@ -114,31 +114,20 @@ __device__ Vector<T>::Vector() {
 
 template <typename T>
 __device__ T& Vector<T>::at(unsigned int i) {
-	// TODO use warp instructions
-	int b = NB-1;
-	while (i < ranges[b]) {
-		--b;
+	int b = 0;
+	int s = 0;
+	while (i < lfv[b].size + s) {
+		s += lfv[b].size;
+		++b;
 	}
-	return lfv[b].at(i-ranges[b]);
+	return lfv[b].at(i-s);
 }
 
 template <typename T>
-__device__ void Vector<T>::insert(T e, int q) {
-	__shared__ int inserted;
-	if (q == 0 && threadIdx.x != 0)
-		return;
-	if (threadIdx.x == 0)
-		inserted = 0;
-	__syncthreads();
+__device__ void Vector<T>::insert(T e) {
 	int bid = blockIdx.x;
 	lfv[bid].push_back(e);
-	atomicAdd(&inserted, 1);
-	__syncthreads();
-	if (threadIdx.x > blockIdx.x && threadIdx.x < NB)
-		atomicAdd(ranges+threadIdx.x, inserted);
-	//if (threadIdx.x == 0)
-		//atomicAdd(&size, inserted);
-		atomicAdd(&size, 1);
+	atomicAdd(&size, 1);
 }
 
 template <typename T>
@@ -157,15 +146,10 @@ __global__ void initVec(Vector<T> *v, unsigned int n) {
 	int bid = blockIdx.x;
 	int tid = threadIdx.x;
 	int bsize = n / NB;
-	int start;
-	if (bid < n % NB) {
+	if (bid < n % NB)
 		++bsize;
-		start = bsize * bid;
-	} else {
-		start = bsize * bid + n%NB;
-	}
 	for (int i = tid; i < bsize && bid*NB+i < n; i += BSIZE) {
-		v->insert(start+i, 1);
+		v->insert(bid*NB+i);
 	}
 }
 
@@ -174,47 +158,25 @@ __global__ void initVec(Vector<T> *v, unsigned int n, T* in) {
 	int bid = blockIdx.x;
 	int tid = threadIdx.x;
 	int bsize = n / NB;
-	int start;
-	if (bid < n % NB) {
+	if (bid < n % NB)
 		++bsize;
-		start = bsize * bid;
-	} else {
-		start = bsize * bid + n%NB;
-	}
 	for (int i = tid; i < bsize && bid*NB+i < n; i += BSIZE) {
-		v->insert(in[start+i], 1);
+		v->insert(in[bid*NB+i]);
 	}
 }
 
-template<typename T>
-__global__ void get_size(int *out, Vector<T> *v) {
-	*out = v->size;
+__device__ int &at(Vector<int> *v, unsigned int i) {
+	return v->at(i);
 }
 
-template<typename T>
-__global__ void vec2array(T *out, Vector<T> *v) {
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	out[tid] = v->at(tid);
-}
-
-template<typename T>
-int sendToHost(T* &out, Vector<T> *v) {
-	int *ds, size, *temp;
-	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
-	get_size<<<1,1>>>(ds, v);
-	gpuErrCheck( cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost) );
-
-	out = (T*)malloc(size * sizeof(T));
-	gpuErrCheck( cudaMalloc(&temp, size*sizeof(T)) );
-	vec2array<<<gridSize(size, BSIZE), BSIZE>>>(temp, v);
-	gpuErrCheck( cudaMemcpy(out, temp, size*sizeof(int), cudaMemcpyDeviceToHost) );
-	return size;
+__device__ void insert_atomic(Vector<int> *v, int e, int *size, int q) {
+	v->insert(e);
 }
 
 // LFVector test
 __global__ void printVec(Vector<int> *v) {
 	printf("size: %d\n", v->size);
-	//return;
+	return;
 	printf("ranges: ");
 	for (int i = 0; i < NB; ++i) {
 		printf("%d ", v->ranges[i]);
@@ -224,12 +186,11 @@ __global__ void printVec(Vector<int> *v) {
 		printf("%d ", v->lfv[i].size);
 	}
 	printf("\n");
-	return;
+	//return;
 	for (int i = 0; i < v->size; ++i) {
 		printf("%d ", v->at(i));
 	}
 	printf("\n");
-	printf("last element: %d\n", v->at(v->size - 1));
 }
 
 __global__ void initVec(Vector<int> *v) {
@@ -246,7 +207,7 @@ __global__ void initVec(Vector<int> *v) {
 
 __global__ void test_insert(Vector<int> *v) {
 	int tid = threadIdx.x;
-	v->insert(tid, 1);
+	v->insert(tid);
 }
 
 __global__ void test_insert2(Vector<int> *v) {
@@ -254,23 +215,14 @@ __global__ void test_insert2(Vector<int> *v) {
 	int bs = v->lfv[blockIdx.x].size;
 	//printf("%d %d %d\n", tid, blockIdx.x, bs);
 	for (int i = tid; i < bs; i += BSIZE) {
-		v->insert(i, 1);
-	}
-}
-
-__global__ void test_insert2_2(Vector<int> *v) {
-	int tid = threadIdx.x;
-	int bs = v->lfv[blockIdx.x].size;
-	//printf("%d %d %d\n", tid, blockIdx.x, bs);
-	for (int i = tid; i < bs; i += BSIZE) {
-		v->insert(v->lfv[blockIdx.x].at(i)+1024, 1);
+		v->insert(i);
 	}
 }
 
 __global__ void test_insert3(Vector<int> *v) {
 	int tid = threadIdx.x;
 	for (int i = 0; i < 10; ++i) {
-		v->insert(tid, 1);
+		v->insert(tid);
 	}
 }
 
@@ -334,7 +286,7 @@ void test_random_copy(LFVector<int> *v, int n) {
 
 void run_experiment(Vector<int> *v, int size, int ratio) {
 	int rep = 10;
-	int rw_rep = 30;
+	int rw_rep = 5;
 	int o_size = size;
 	createLFVector<<<1,1>>>(v); kernelCallCheck();
 	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
@@ -376,7 +328,6 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 }
 
 
-
 int main(int argc, char **argv){
 
 	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 1000*NB*BSIZE*sizeof(int));
@@ -402,22 +353,15 @@ int main(int argc, char **argv){
 	// TODO use ratio (3rd arg) in insertion
 	run_experiment(lfv, size, 2);
 
+	
 	return 0;
 
-	//initVec<<<1,1>>>(lfv); kernelCallCheck();
-	createLFVector<<<1,1>>>(lfv); kernelCallCheck();
-	initVec<<<NB,BSIZE>>>(lfv, size, a); kernelCallCheck();
-	//printVec<<<1,1>>>(lfv); kernelCallCheck();
-	int *r;
-	int final_size = sendToHost(r, lfv);
-	printf("%d\n", final_size);
-	//print_array(r, final_size);
-	for (int i = 0; i < 5; ++i) {
-		printf("%d\n", i);
-		test_insert2_2<<<NB,BSIZE>>>(lfv); kernelCallCheck();
-		printVec<<<1,1>>>(lfv); kernelCallCheck();
-	}
-	//printVec<<<1,1>>>(lfv); kernelCallCheck();
+	//initVec<<<1,1>>>(a); kernelCallCheck();
+	//printVec<<<1,1>>>(a); kernelCallCheck();
+	//for (int i = 0; i < 10; ++i) {
+		//test_insert2<<<NB,BSIZE>>>(a); kernelCallCheck();
+		//printVec<<<1,1>>>(a); kernelCallCheck();
+	//}
 	
 	return 0;
 }

@@ -1,3 +1,4 @@
+
 #include <cuda.h>
 #include <assert.h>
 #include <iostream>
@@ -5,20 +6,13 @@
 #include "utility.cuh"
 using namespace std;
 
-struct DevVec {
-    CUdeviceptr p;
-	__device__ int& at(unsigned int i);
-}
+#define BSIZE 1024
+#define PROB 90
 
-__device__ int& DevVec::at(CUdeviceptr d_p, size_t i) {
-	return (*(int**)&d_p)[i];
-}
-
-
+// Low Level API
 class VectorMemMap {
 private:
     CUdeviceptr d_p;
-    DevVec *d_v;
     CUmemAllocationProp prop;
     CUmemAccessDesc accessDesc;
     struct Range {
@@ -79,10 +73,6 @@ VectorMemMap::VectorMemMap(CUcontext context) : d_p(0ULL), prop(), handles(), al
 
     status = cuMemGetAllocationGranularity(&chunk_sz, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
     assert(status == CUDA_SUCCESS);
-
-	DevVec* temp = DevVec();
-	gpuErrCheck( cudaMalloc(&a, sizeof(Vector<int>)) );
-	//cudaMemset(
 }
 
 VectorMemMap::~VectorMemMap()
@@ -213,12 +203,20 @@ VectorMemMap::grow(size_t new_sz)
     return status;
 }
 
+__device__ int &at(CUdeviceptr d_p, unsigned int i) {
+	return (*(int**)&d_p)[i];
+}
 
-__global__ void test_insert(CUdeviceptr d_p, int *size) {
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid >= *size) return;
+__device__ void insert_atomic(CUdeviceptr d_p, int e, int *size, int q) {
 	int idx = atomicAdd(size, 1);
-	at(d_p, idx) = tid;
+	at(d_p, idx) = e;
+}
+
+__global__ void initVec(CUdeviceptr d_p, unsigned int n, int* in) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid >= n) return;
+	at(d_p, tid) = in[tid];
+
 }
 
 __global__ void test(CUdeviceptr d_p, size_t n) {
@@ -227,33 +225,21 @@ __global__ void test(CUdeviceptr d_p, size_t n) {
 	}
 }
 
-__global__ void printVec(DevVec v, size_t n) {
+__global__ void printVec(CUdeviceptr d_p, size_t n) {
 	for (size_t i = 0; i < n; ++i) {
-		printf("%d ", v.at(i));
+		printf("%d ", at(d_p, i));
 	}
 	printf("\n");
 }
 
-__global__ void test_insert(DevVec *v, int *size) {
+__global__ void test_insert(CUdeviceptr d_p, int *size) {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid >= *size) return;
 	int idx = atomicAdd(size, 1);
-	v.at(idx) = tid;
+	at(d_p, idx) = tid;
 }
 
-__global__ void test(DevVec *v, size_t n) {
-	for (size_t i = 0; i < n; ++i) {
-		v.at(i) = i;
-	}
-}
-
-__global__ void printVec(DevVec *v, size_t n) {
-	for (size_t i = 0; i < n; ++i) {
-		printf("%d ", v.at(i));
-	}
-	printf("\n");
-}
-
+// low level api test
 void run_experiment(CUcontext ctx) {
 	int rep = 10;
 	int size = 1024*100;
@@ -287,45 +273,90 @@ void run_experiment(CUcontext ctx) {
 	printf("%f\n", s);
 }
 
+
+// static
+__global__ void initVec(int *array, unsigned int n, int* in) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid >= n) return;
+	array[tid] = in[tid];
+
+}
+
+__device__ int &at(int *a, unsigned int i) {
+	return a[i];
+}
+
+__device__ void insert_atomic(int *a, int e, int *size, int q) {
+	int idx = atomicAdd(size, 1);
+	a[idx] = e;
+}
+
+__global__ void test_insert(int *a, int *size) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid >= *size) return;
+	int idx = atomicAdd(size, 1);
+	a[idx] = tid;
+}
+
+
+// tests
+template <typename T>
+__global__ void insert_template(T v, int n, int *size) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	if (tid >= n) return;
+	insert_atomic(v, at(v, tid), size, 1);
+}
+
 int main(int argc, char **argv){
-	size_t n = 128;
+
+	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 1000*NB*BSIZE*sizeof(int));
+	cudaDeviceSetLimit(cudaLimitMallocHeapSize, INT_MAX*sizeof(int));
+
+	int *a, *ha;
+	int size = 1e5;
+	int *static_size;
+	int *memmap_size;
+	ha = new int[size];
+	for (int i = 0; i < size; ++i) {
+		ha[i] = i;
+	}
+	gpuErrCheck( cudaMalloc(&a, 2*size*sizeof(int)) );
+	gpuErrCheck( cudaMalloc(&static_size, sizeof(int)) );
+	gpuErrCheck( cudaMalloc(&memmap_size, sizeof(int)) );
+	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
+	gpuErrCheck( cudaMemcpy(static_size, &size, sizeof(int), cudaMemcpyHostToDevice) );
+
+	printf("%d\n", size);
+	
+	insert_template<int*><<<gridSize(size,BSIZE),  BSIZE>>>(a, size, static_size);
+	
+	gpuErrCheck( cudaMemcpy(&size, static_size, sizeof(int), cudaMemcpyDeviceToHost) );
+	printf("%d\n", size);
+	 
+	// low level api
 	cudaSetDevice(0);
 	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 1e7*sizeof(int));
 	CUcontext ctx;
 	cuDevicePrimaryCtxRetain(&ctx, 0);
 	cuCtxSetCurrent(ctx);
+
+	VectorMemMap a2 = VectorMemMap(ctx);
+	CUresult status;
+	gpuErrCheck( cudaMemcpy(memmap_size, &size, sizeof(int), cudaMemcpyHostToDevice) );
+
+	status = a2.grow(4*size*sizeof(int));
+	gpuErrCheck( cudaMemcpy((void*)a2.getPointer(), ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
+	insert_template<CUdeviceptr><<<gridSize(size,BSIZE),BSIZE>>>(a2.getPointer(), size, memmap_size);
+	gpuErrCheck( cudaMemcpy(&size, memmap_size, sizeof(int), cudaMemcpyDeviceToHost) );
+	printf("%d\n", size);
 	
 	//size_t free;
 	//cuMemGetInfo(&free, NULL);
 	//cout << "Total Free Memory: " <<
 		//(float)free << endl;
 	
-	run_experiment(ctx);
-
-	/*
-	VectorMemMap a = VectorMemMap(ctx);
-	CUresult status;
-
-	cout << "size: " << a.getSize() << endl;
-	status = a.reserve(n*sizeof(int));
-	cout << "size: " << a.getSize() << endl;
-	status = a.grow(n*sizeof(int));
-	cout << "size: " << a.getSize() << " reserve: " << a.getReserve() << endl;
-
-	test<<<1,1>>>(a.getPointer(), n); kernelCallCheck();
-	//printVec<<<1,1>>>(a.getPointer(), n); kernelCallCheck();
-	
-	//status = a.grow(1000000);
-	//cout << "size: " << a.getSize() << " reserve: " << a.getReserve() << endl;
-
-	n = 1e7;
-	status = a.grow(n*sizeof(int));
-	cout << "status: " << status << endl;
-	cout << "size: " << a.getSize() << " reserve: " << a.getReserve() << endl;
-	test<<<1,1>>>(a.getPointer(), n); kernelCallCheck();
-	*/
-	
+	//run_experiment(ctx);
 	cuDevicePrimaryCtxRelease(0);
+	
 	return 0;
 }
-

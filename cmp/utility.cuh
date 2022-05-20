@@ -36,12 +36,6 @@ void print_array(float *m, int n, const char *msg){
 	printf("\n");
 }
 
-void print_array(int *m, int n) {
-	for (int i = 0; i < n; ++i){
-		printf("%d ", m[i]);
-	}
-	printf("\n");
-}
 void print_array(int *m, int n, const char *msg) {
 	printf("%s\n", msg);
 	for (int i = 0; i < n; ++i){

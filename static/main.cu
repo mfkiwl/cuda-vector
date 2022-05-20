@@ -8,6 +8,11 @@
 #define NB 100
 #define PROB 90
 
+struct Vec{
+	T *a;
+	unsigned int size;
+}
+
 __global__ void test_insert(int *a, int *size) {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid >= *size) return;
