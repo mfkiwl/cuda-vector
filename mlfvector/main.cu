@@ -362,13 +362,13 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 	}
 	
 	// print results
-	printf("mlfv,%d,%d,", o_size, ratio);
+	printf("mlfv%d,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
-	printf("mlfv,%d,%d,", o_size, ratio);
+	printf("mlfv%d,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
 	}

@@ -5,20 +5,10 @@
 #include "utility.cuh"
 using namespace std;
 
-struct DevVec {
-    CUdeviceptr p;
-	__device__ int& at(unsigned int i);
-}
-
-__device__ int& DevVec::at(CUdeviceptr d_p, size_t i) {
-	return (*(int**)&d_p)[i];
-}
-
 
 class VectorMemMap {
 private:
     CUdeviceptr d_p;
-    DevVec *d_v;
     CUmemAllocationProp prop;
     CUmemAccessDesc accessDesc;
     struct Range {
@@ -79,10 +69,6 @@ VectorMemMap::VectorMemMap(CUcontext context) : d_p(0ULL), prop(), handles(), al
 
     status = cuMemGetAllocationGranularity(&chunk_sz, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
     assert(status == CUDA_SUCCESS);
-
-	DevVec* temp = DevVec();
-	gpuErrCheck( cudaMalloc(&a, sizeof(Vector<int>)) );
-	//cudaMemset(
 }
 
 VectorMemMap::~VectorMemMap()
@@ -213,12 +199,25 @@ VectorMemMap::grow(size_t new_sz)
     return status;
 }
 
+__device__ int &at(CUdeviceptr d_p, unsigned int i) {
+	return (*(int**)&d_p)[i];
+}
 
-__global__ void test_insert(CUdeviceptr d_p, int *size) {
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid >= *size) return;
+__device__ void insert_atomic(CUdeviceptr d_p, int e, int *size, int q) {
 	int idx = atomicAdd(size, 1);
-	at(d_p, idx) = tid;
+	at(d_p, idx) = e;
+}
+
+__global__ void initVec(CUdeviceptr d_p, unsigned int n) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid >= n) return;
+	at(d_p, tid) = tid;
+}
+
+__global__ void initVec(CUdeviceptr d_p, unsigned int n, int* in) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid >= n) return;
+	at(d_p, tid) = in[tid];
 }
 
 __global__ void test(CUdeviceptr d_p, size_t n) {
@@ -227,68 +226,79 @@ __global__ void test(CUdeviceptr d_p, size_t n) {
 	}
 }
 
-__global__ void printVec(DevVec v, size_t n) {
+__global__ void printVec(CUdeviceptr d_p, size_t n) {
 	for (size_t i = 0; i < n; ++i) {
-		printf("%d ", v.at(i));
+		printf("%d ", at(d_p, i));
 	}
 	printf("\n");
 }
 
-__global__ void test_insert(DevVec *v, int *size) {
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid >= *size) return;
-	int idx = atomicAdd(size, 1);
-	v.at(idx) = tid;
+__global__ void test_insert_atomic(CUdeviceptr v, int n, int *size) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	if (tid >= n) return;
+	insert_atomic(v, at(v, tid), size, 1);
 }
 
-__global__ void test(DevVec *v, size_t n) {
-	for (size_t i = 0; i < n; ++i) {
-		v.at(i) = i;
-	}
+__global__ void test_read_write(CUdeviceptr v, int size) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	if (tid >= size) return;
+	at(v, tid) += 1;
 }
 
-__global__ void printVec(DevVec *v, size_t n) {
-	for (size_t i = 0; i < n; ++i) {
-		printf("%d ", v.at(i));
-	}
-	printf("\n");
-}
-
-void run_experiment(CUcontext ctx) {
+// low level api test
+void run_experiment(CUcontext ctx, int size, int ratio) {
 	int rep = 10;
-	int size = 1024*100;
+	int rw_rep = 30;
+	int o_size = size;
 	int *ds;
 	cudaMalloc(&ds, sizeof(int));
 	cudaMemcpy(ds, &size, sizeof(int), cudaMemcpyHostToDevice);
-
-	float results[rep];
-	float s = 0.0;
 
 	VectorMemMap a = VectorMemMap(ctx);
 	CUresult status;
 
 	status = a.grow(size*sizeof(int));
-	test<<<1,1>>>(a.getPointer(), size); kernelCallCheck();
+	initVec<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size); kernelCallCheck();
+
+	float results[rep];
+	float results_rw[rw_rep];
 	
 	for (int i = 0; i < rep; ++i) {
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
 		status = a.grow(size*2*sizeof(int));
-		test_insert<<<gridSize(size, 1024), 1024>>>(a.getPointer(), ds);
+		test_insert_atomic<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size, ds);
 		results[i] = stop_clock(start, stop);
-		s += results[i];
-		size *= 2;
+		cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
+
+		// read/write
+		results_rw[i] = 0.0;
+		for (int j = 0; j < rw_rep; ++j) {
+			cudaEvent_t start, stop;
+			start_clock(start, stop);
+			test_read_write<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size); kernelCallCheck();
+			results_rw[i] += stop_clock(start, stop);
+		}
+		results_rw[i] /= rw_rep;
 	}
 
+	// print results
+	printf("memMap,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
-	printf("%f\n", s);
+	//printf("%f\n", s);
+	printf("memMap,%d,%d,", o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_rw[i]);
+	}
+	printf("%f\n", results_rw[rep-1]);
 }
 
 int main(int argc, char **argv){
-	size_t n = 128;
+	int size = 1e6;
+	int ratio = 2;
 	cudaSetDevice(0);
 	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 1e7*sizeof(int));
 	CUcontext ctx;
@@ -300,7 +310,7 @@ int main(int argc, char **argv){
 	//cout << "Total Free Memory: " <<
 		//(float)free << endl;
 	
-	run_experiment(ctx);
+	run_experiment(ctx, size, ratio);
 
 	/*
 	VectorMemMap a = VectorMemMap(ctx);
