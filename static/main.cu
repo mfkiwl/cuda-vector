@@ -9,7 +9,7 @@
 #define PROB 90
 
 
-__device__ int &at(int *a, unsigned int i) {
+inline __device__ int &at(int *a, unsigned int i) {
 	return a[i];
 }
 
@@ -53,7 +53,8 @@ void run_experiment(int size, int ratio) {
 	for (int i = 0; i < rep; ++i) {
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
-		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
+		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
+		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
 		cudaMemcpy(&size, dsize, sizeof(int), cudaMemcpyDeviceToHost);
 
@@ -62,20 +63,21 @@ void run_experiment(int size, int ratio) {
 		for (int j = 0; j < rw_rep; ++j) {
 			cudaEvent_t start, stop;
 			start_clock(start, stop);
-			test_read_write<<<gridSize(size, 1024), 1024>>>(a, size); kernelCallCheck();
+			test_read_write<<<gridSize(size, 1024), 1024>>>(a, size);
+			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
 		results_rw[i] /= rw_rep;
 	}
 
 	// print results
-	printf("static,%d,%d,", o_size, ratio);
+	printf("static,in,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
-	printf("static,%d,%d,", o_size, ratio);
+	printf("static,rw,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
 	}
@@ -86,7 +88,7 @@ int main(int argc, char **argv){
 
 	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, INT_MAX*sizeof(int));
 
-	int size = 1e6;
+	int size = 1<<19;
 	int ratio = 1;
 
 	run_experiment(size, ratio);

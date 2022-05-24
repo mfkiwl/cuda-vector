@@ -199,7 +199,7 @@ VectorMemMap::grow(size_t new_sz)
     return status;
 }
 
-__device__ int &at(CUdeviceptr d_p, unsigned int i) {
+inline __device__ int &at(CUdeviceptr d_p, unsigned int i) {
 	return (*(int**)&d_p)[i];
 }
 
@@ -268,6 +268,7 @@ void run_experiment(CUcontext ctx, int size, int ratio) {
 		start_clock(start, stop);
 		status = a.grow(size*2*sizeof(int));
 		test_insert_atomic<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size, ds);
+		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
 		cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
 
@@ -276,20 +277,21 @@ void run_experiment(CUcontext ctx, int size, int ratio) {
 		for (int j = 0; j < rw_rep; ++j) {
 			cudaEvent_t start, stop;
 			start_clock(start, stop);
-			test_read_write<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size); kernelCallCheck();
+			test_read_write<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size);
+			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
 		results_rw[i] /= rw_rep;
 	}
 
 	// print results
-	printf("memMap,%d,%d,", o_size, ratio);
+	printf("memMap,in,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
-	printf("memMap,%d,%d,", o_size, ratio);
+	printf("memMap,rw,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
 	}
@@ -297,8 +299,8 @@ void run_experiment(CUcontext ctx, int size, int ratio) {
 }
 
 int main(int argc, char **argv){
-	int size = 1e6;
-	int ratio = 2;
+	int size = 1<<19;
+	int ratio = 1;
 	cudaSetDevice(0);
 	//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 1e7*sizeof(int));
 	CUcontext ctx;

@@ -5,7 +5,7 @@
 
 #define ull unsigned long long int
 #define BSIZE 1024
-#define NB 10
+#define NB 64
 #define PROB 90
 #define FBS 1024
 #define logFBS 10
@@ -274,7 +274,13 @@ __global__ void test_insert3(Vector<int> *v) {
 	}
 }
 
-__global__ void test_read_write(Vector<int> *v) {
+__global__ void test_read_write_g(Vector<int> *v, int size) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	if (tid >= size) return;
+	v->at(tid) += 1;
+}
+
+__global__ void test_read_write_b(Vector<int> *v) {
 	int tid = threadIdx.x;
 	int bid = blockIdx.x;
 	for (int i = tid; i < v->lfv[bid].size; i += BSIZE) {
@@ -333,6 +339,9 @@ void test_random_copy(LFVector<int> *v, int n) {
 }
 
 void run_experiment(Vector<int> *v, int size, int ratio) {
+	int *ds;
+	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
+
 	int rep = 10;
 	int rw_rep = 30;
 	int o_size = size;
@@ -344,9 +353,11 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 	float s = 0.0;
 	// insert
 	for (int i = 0; i < rep; ++i) {
+		printf("%d ", i); fflush(stdout);
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
 		test_insert2<<<NB, BSIZE>>>(v); kernelCallCheck();
+		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
 		s += results[i];
 
@@ -355,20 +366,27 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 		for (int j = 0; j < rw_rep; ++j) {
 			cudaEvent_t start, stop;
 			start_clock(start, stop);
-			test_read_write<<<NB, BSIZE>>>(v); kernelCallCheck();
+			// wr block
+				test_read_write_b<<<NB, BSIZE>>>(v);
+			// wr global
+				get_size<<<1,1>>>(ds, v);
+				gpuErrCheck( cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost) );
+				test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size);
+			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
 		results_rw[i] /= rw_rep;
 	}
 	
 	// print results
-	printf("mlfv%d,%d,%d,", NB, o_size, ratio);
+	printf("\n");
+	printf("mlfv%d,in,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
-	printf("mlfv%d,%d,%d,", NB, o_size, ratio);
+	printf("mlfv%d,rw,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
 	}
@@ -383,7 +401,7 @@ int main(int argc, char **argv){
 	cudaDeviceSetLimit(cudaLimitMallocHeapSize, INT_MAX*sizeof(int));
 
 	int *a, *ha;
-	int size = 1e6;
+	int size = 1<<19;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
 		ha[i] = i;
