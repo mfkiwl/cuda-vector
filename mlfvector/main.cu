@@ -275,16 +275,22 @@ __global__ void test_insert3(Vector<int> *v) {
 }
 
 __global__ void test_read_write_g(Vector<int> *v, int size) {
+	int rep = 30;
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= size) return;
-	v->at(tid) += 1;
+	for (int i = 0; i < rep; ++i) {
+		v->at(tid) += 1;
+	}
 }
 
 __global__ void test_read_write_b(Vector<int> *v) {
+	int rep = 30;
 	int tid = threadIdx.x;
 	int bid = blockIdx.x;
 	for (int i = tid; i < v->lfv[bid].size; i += BSIZE) {
-		v->lfv[bid].at(i) += 1;
+		for (int j = 0; j < rep; ++j) {
+			v->lfv[bid].at(i) += 1;
+		}
 	}
 }
 
@@ -368,10 +374,10 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 			start_clock(start, stop);
 			// wr block
 				test_read_write_b<<<NB, BSIZE>>>(v);
-			// wr global
-				get_size<<<1,1>>>(ds, v);
-				gpuErrCheck( cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost) );
-				test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size);
+			// wr global - slow
+				//get_size<<<1,1>>>(ds, v);
+				//uErrCheck( cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost) );
+				//st_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size);
 			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}

@@ -348,9 +348,11 @@ void run_experiment(Vector<int> *v, int size, int ratio, MemoryManagerType mm) {
 	float s = 0.0;
 	// insert
 	for (int i = 0; i < rep; ++i) {
+		printf("%d ", i); fflush(stdout);
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
 		test_insert2<<<NB, BSIZE>>>(v); kernelCallCheck();
+		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
 		s += results[i];
 
@@ -360,6 +362,7 @@ void run_experiment(Vector<int> *v, int size, int ratio, MemoryManagerType mm) {
 			cudaEvent_t start, stop;
 			start_clock(start, stop);
 			test_read_write<<<NB, BSIZE>>>(v); kernelCallCheck();
+			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
 		results_rw[i] /= rw_rep;
@@ -391,7 +394,7 @@ int main(int argc, char **argv){
 	memory_manager.initialize(instantitation_size);
 
 	int *a, *ha;
-	int size = 1e6;
+	int size = 1<<19;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
 		ha[i] = i;

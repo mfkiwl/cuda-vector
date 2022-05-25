@@ -240,9 +240,12 @@ __global__ void test_insert_atomic(CUdeviceptr v, int n, int *size) {
 }
 
 __global__ void test_read_write(CUdeviceptr v, int size) {
+	int rep = 30;
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= size) return;
-	at(v, tid) += 1;
+	for (int i = 0; i < rep; ++i) {
+		at(v, tid) += 1;
+	}
 }
 
 // low level api test

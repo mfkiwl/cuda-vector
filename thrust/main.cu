@@ -25,12 +25,9 @@ __global__ void test_insert_atomic(int* v, int n, int *size) {
 }
 
 __global__ void test_read_write(int* v, int size) {
-	int rep = 30;
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= size) return;
-	for (int i = 0; i < rep; ++i) {
-		at(v, tid) += 1;
-	}
+	at(v, tid) += 1;
 }
 
 void run_experiment(int size, int ratio) {
