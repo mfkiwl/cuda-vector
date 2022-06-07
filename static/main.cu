@@ -24,8 +24,7 @@ __global__ void test_insert_atomic(int* v, int n, int *size) {
 	insert_atomic(v, at(v, tid), size, 1);
 }
 
-__global__ void test_read_write(int* v, int size) {
-	int rep = 30;
+__global__ void test_read_write(int* v, int size, int rep) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= size) return;
 	for (int i = 0; i < rep; ++i) {
@@ -37,6 +36,7 @@ void run_experiment(int size, int ratio) {
 	int rep = 10;
 	int rw_rep = 30;
 	int o_size = size;
+	int rw_kernel_rep = 1;
 
 	int *a, *ha;
 	int *dsize;
@@ -66,7 +66,7 @@ void run_experiment(int size, int ratio) {
 		for (int j = 0; j < rw_rep; ++j) {
 			cudaEvent_t start, stop;
 			start_clock(start, stop);
-			test_read_write<<<gridSize(size, 1024), 1024>>>(a, size);
+			test_read_write<<<gridSize(size, 1024), 1024>>>(a, size, rw_kernel_rep);
 			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
@@ -80,7 +80,7 @@ void run_experiment(int size, int ratio) {
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
-	printf("static,rw,%d,%d,", o_size, ratio);
+	printf("static,rw%d,%d,%d,", rw_kernel_rep, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
 	}

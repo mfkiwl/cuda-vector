@@ -30,6 +30,7 @@ struct LFVector {
 	__device__ int get_bucket(unsigned int i);
 	__device__ void new_bucket(unsigned int b);
 	__device__ void push_back(T e);
+	__device__ void grow(unsigned int n);
 };
 
 template <typename T>
@@ -92,6 +93,14 @@ __device__ void LFVector<T>::push_back(T e) {
 }
 
 template <typename T>
+__device__ void LFVector<T>::grow(unsigned int n) {
+	int b1 = get_bucket(size);
+	int b2 = get_bucket(n);
+	for (int b = b1+1; b <= b2; ++b)
+		new_bucket(b);
+}
+
+template <typename T>
 struct Vector {
 	unsigned int size;
 	LFVector<T> *lfv;
@@ -99,6 +108,7 @@ struct Vector {
 	__device__ Vector();
 	__device__ T& at(unsigned int i);
 	__device__ void insert(T e, int q);
+	__device__ void grow(unsigned int n);
 };
 
 template <typename T>
@@ -140,6 +150,19 @@ __device__ void Vector<T>::insert(T e, int q) {
 		//atomicAdd(&size, inserted);
 		atomicAdd(&size, 1);
 }
+
+template <typename T>
+__device__ void Vector<T>:: grow(unsigned int n) {
+	int tid = threadIdx.x;
+	int sub_size = (n + NB - 1) / NB;
+	lfv[tid].grow(sub_size);
+}
+
+template <typename T>
+__global__ void growVec(Vector<T> *v, unsigned int n) {
+	v->grow(n);
+}
+
 
 template <typename T>
 __global__ void createLFVector(Vector<T> *v) {
@@ -274,8 +297,7 @@ __global__ void test_insert3(Vector<int> *v) {
 	}
 }
 
-__global__ void test_read_write_g(Vector<int> *v, int size) {
-	int rep = 30;
+__global__ void test_read_write_g(Vector<int> *v, int size, int rep) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= size) return;
 	for (int i = 0; i < rep; ++i) {
@@ -283,8 +305,7 @@ __global__ void test_read_write_g(Vector<int> *v, int size) {
 	}
 }
 
-__global__ void test_read_write_b(Vector<int> *v) {
-	int rep = 30;
+__global__ void test_read_write_b(Vector<int> *v, int rep) {
 	int tid = threadIdx.x;
 	int bid = blockIdx.x;
 	for (int i = tid; i < v->lfv[bid].size; i += BSIZE) {
@@ -355,17 +376,25 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
 	//printVec<<<1,1>>>(v); kernelCallCheck();
 	float results[rep];
+	float results_grow[rep];
 	float results_rw[rw_rep];
-	float s = 0.0;
+	int rw_kernel_rep = 30;
 	// insert
 	for (int i = 0; i < rep; ++i) {
 		printf("%d ", i); fflush(stdout);
+
+		// grow
 		cudaEvent_t start, stop;
+		start_clock(start, stop);
+		growVec<<<1,NB>>>(v, 2*size);
+		cudaDeviceSynchronize();
+		results_grow[i] = stop_clock(start, stop);
+
+		// insertion
 		start_clock(start, stop);
 		test_insert2<<<NB, BSIZE>>>(v); kernelCallCheck();
 		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
-		s += results[i];
 
 		// read/write
 		results_rw[i] = 0.0;
@@ -375,24 +404,30 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 				cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
 			start_clock(start, stop);
 			// wr block
-				//test_read_write_b<<<NB, BSIZE>>>(v);
+				test_read_write_b<<<NB, BSIZE>>>(v, rw_kernel_rep);
 			// wr global - slow
-				test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size);
+				//test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size, rw_kernel_rep);
 			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
 		results_rw[i] /= rw_rep;
+		size *= 2;
 	}
 	
 	// print results
 	printf("\n");
+	printf("mlfv%d,grow,%d,%d,", NB, o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_grow[i]);
+	}
+	printf("%f\n", results_grow[rep-1]);
 	printf("mlfv%d,in,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
-	printf("mlfv%d,rw,%d,%d,", NB, o_size, ratio);
+	printf("mlfv%d,rw%d,%d,%d,", NB, rw_kernel_rep, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
 	}
