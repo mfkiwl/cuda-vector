@@ -118,20 +118,6 @@ __inline__ __device__ float tensor_block_scan(half val) {
 	int wid = tid / WARPSIZE;
 	vals[tid] = val;
 
-	/*
-	int i = tid / 16;
-	int j = tid % 16;
-	if (tid < 256) {
-		if (i <= j) {
-			upper_triang[tid] = 1;
-			lower_triang[tid] = 0;
-		} else {
-			upper_triang[tid] = 0;
-			lower_triang[tid] = 1;
-		}
-	}
-	*/
-
 	if (wid < 4) {
 		wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
 		wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> b_frag;
@@ -184,7 +170,11 @@ __global__ void tensor_scan(int *C, int *A, int *s, int n) {
 	__shared__ int ss;
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	float pval = tid < n ? A[tid] : 0;
+	printf("n  tid %d: %f\n", tid, pval);
+	__syncthreads();
 	int val = tensor_block_scan(pval);
+	__syncthreads();
+	printf("tid %d: %d\n", tid, val);
 	if (tid >= n) return;
         if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
                 C[blockIdx.x] = atomicAdd(s, val);
@@ -204,17 +194,21 @@ __device__ void insert_tensor_scan(int *a, int e, int *size, int q) {
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	int n = *size;
 	float pval = tid < n ? q : 0;
+	printf("n  tid %d: %f\n", tid, pval);
+	__syncthreads();
 	int val = tensor_block_scan(pval);
+	__syncthreads();
 	printf("tid %d: %d\n", tid, val);
 	if (tid >= n) return;
         if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
-                a[blockIdx.x] = atomicAdd(size, val);
+                a[n + blockIdx.x] = atomicAdd(size, val);
+		printf("tid %d: %d\n", tid, *size);
         }
         __syncthreads();
-	int asd = a[blockIdx.x];
+	int asd = a[n + blockIdx.x];
 	int idx = val + asd - q;
         __syncthreads();
-	printf("tid %d: %d\n", tid, idx);
+	//printf("tid %d: %d\n", tid, idx);
 	if (q)
 		a[idx] = e;
 }
@@ -314,13 +308,12 @@ int main(int argc, char **argv){
                 fprintf(stderr, "Ejecutar como ./prog n\n");
                 return -1;
         }
-        int n = atoi(argv[1]);
+        int size = atoi(argv[1]);
 
-	test_scan(n);
+	test_scan(size);
 	//run_experiment();
 	return 0;
 
-	int size = 1024;
 	int *a, *ha;
 	int *dsize;
 	ha = new int[size];
