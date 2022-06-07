@@ -371,13 +371,13 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 		results_rw[i] = 0.0;
 		for (int j = 0; j < rw_rep; ++j) {
 			cudaEvent_t start, stop;
+				get_size<<<1,1>>>(ds, v);
+				cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
 			start_clock(start, stop);
 			// wr block
-				test_read_write_b<<<NB, BSIZE>>>(v);
+				//test_read_write_b<<<NB, BSIZE>>>(v);
 			// wr global - slow
-				//get_size<<<1,1>>>(ds, v);
-				//uErrCheck( cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost) );
-				//st_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size);
+				test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size);
 			cudaDeviceSynchronize();
 			results_rw[i] += stop_clock(start, stop);
 		}
