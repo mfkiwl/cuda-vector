@@ -5,7 +5,7 @@
 
 #define ull unsigned long long int
 #define BSIZE 1024
-#define NB 64
+#define NB 1024
 #define PROB 90
 #define FBS 1024
 #define logFBS 10
@@ -25,7 +25,6 @@ struct LFVector {
 	T **a;
 	int *isbucket;
 	__device__ LFVector();
-	__device__ void resize(unsigned int n);
 	__device__ T& at(unsigned int i);
 	__device__ int get_bucket(unsigned int i);
 	__device__ void new_bucket(unsigned int b);
@@ -60,18 +59,6 @@ __device__ T& LFVector<T>::at(unsigned int i) {
 }
 
 template <typename T>
-__device__ void LFVector<T>::resize(unsigned int n) {
-	int b1 = get_bucket(size);
-	int b2 = get_bucket(n);
-	for (int i = b1+1; i <= b2; ++i) {
-		int bsize = 1 << (logFBS + i);
-		a[i] = (T*)malloc(sizeof(T) * bsize);
-		isbucket[i] = 1;
-	}
-	size = n;
-}
-
-template <typename T>
 __device__ void LFVector<T>::new_bucket(unsigned int b) {
 	//printf("inside new_bucket %d\n", b);
 	int old = atomicCAS(isbucket + b, 0, 1);
@@ -96,8 +83,10 @@ template <typename T>
 __device__ void LFVector<T>::grow(unsigned int n) {
 	int b1 = get_bucket(size);
 	int b2 = get_bucket(n);
-	for (int b = b1+1; b <= b2; ++b)
+	for (int b = b1+1; b <= b2; ++b) {
 		new_bucket(b);
+		isbucket[b] = 1;
+	}
 }
 
 template <typename T>
@@ -171,7 +160,7 @@ __global__ void createLFVector(Vector<T> *v) {
 	v->size = 0;
 	for (int i = 0; i < NB; ++i) {
 		v->ranges[i] = 0;
-		v->lfv[i].resize(0);
+		v->lfv[i].grow(0);
 	}
 }
 
@@ -237,7 +226,12 @@ int sendToHost(T* &out, Vector<T> *v) {
 // LFVector test
 __global__ void printVec(Vector<int> *v) {
 	printf("size: %d\n", v->size);
-	//return;
+	// pint lfv[0]
+	for (int i = 0; i < 64; ++i) {
+		printf("%d ", v->lfv[0].isbucket[i]);
+	}
+	
+	return;
 	printf("ranges: ");
 	for (int i = 0; i < NB; ++i) {
 		printf("%d ", v->ranges[i]);
@@ -260,7 +254,7 @@ __global__ void initVec(Vector<int> *v) {
 	v->size = NB*BSIZE;
 	for (int i = 0; i < NB; ++i) {
 		v->ranges[i] = BSIZE*i;
-		v->lfv[i].resize(BSIZE);
+		v->lfv[i].grow(BSIZE);
 	}
 	for(int i = 0; i < v->size; ++i) {
 		v->at(i) = i;
@@ -334,7 +328,7 @@ __global__ void init_random(LFVector<int> *v, int *A, int n) {
 		v->a[i] = nullptr;
 		v->isbucket[i] = 0;
 	}
-	v->resize(n);
+	v->grow(n);
 	for (int i = 0; i < n; ++i) {
 		v->at(i) = A[i];
 	}
@@ -374,7 +368,7 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 	int o_size = size;
 	createLFVector<<<1,1>>>(v); kernelCallCheck();
 	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
-	//printVec<<<1,1>>>(v); kernelCallCheck();
+	printVec<<<1,1>>>(v); kernelCallCheck();
 	float results[rep];
 	float results_grow[rep];
 	float results_rw[rw_rep];
@@ -389,6 +383,7 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 		growVec<<<1,NB>>>(v, 2*size);
 		cudaDeviceSynchronize();
 		results_grow[i] = stop_clock(start, stop);
+		printVec<<<1,1>>>(v); kernelCallCheck();
 
 		// insertion
 		start_clock(start, stop);
