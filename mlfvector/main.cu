@@ -5,7 +5,7 @@
 
 #define ull unsigned long long int
 #define BSIZE 1024
-#define NB 1024
+#define NB 64
 #define PROB 90
 #define FBS 1024
 #define logFBS 10
@@ -364,16 +364,18 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
 
 	int rep = 10;
+	int size_exp = 29 - rep;
+	size = 1 << size_exp;
 	int rw_rep = 30;
 	int o_size = size;
 	createLFVector<<<1,1>>>(v); kernelCallCheck();
 	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
-	printVec<<<1,1>>>(v); kernelCallCheck();
+	//printVec<<<1,1>>>(v); kernelCallCheck();
 	float results[rep];
 	float results_grow[rep];
 	float results_rw[rw_rep];
-	int rw_kernel_rep = 30;
-	// insert
+	int rw_kernel_rep = 1;
+
 	for (int i = 0; i < rep; ++i) {
 		printf("%d ", i); fflush(stdout);
 
@@ -383,7 +385,7 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 		growVec<<<1,NB>>>(v, 2*size);
 		cudaDeviceSynchronize();
 		results_grow[i] = stop_clock(start, stop);
-		printVec<<<1,1>>>(v); kernelCallCheck();
+		//printVec<<<1,1>>>(v); kernelCallCheck();
 
 		// insertion
 		start_clock(start, stop);
@@ -411,17 +413,20 @@ void run_experiment(Vector<int> *v, int size, int ratio) {
 	
 	// print results
 	printf("\n");
+	// grow
 	printf("mlfv%d,grow,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_grow[i]);
 	}
 	printf("%f\n", results_grow[rep-1]);
+	// insert
 	printf("mlfv%d,in,%d,%d,", NB, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
 	//printf("%f\n", s);
+	// read-write
 	printf("mlfv%d,rw%d,%d,%d,", NB, rw_kernel_rep, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results_rw[i]);
@@ -438,6 +443,7 @@ int main(int argc, char **argv){
 
 	int *a, *ha;
 	int size = 1<<19;
+	//int size = 1e6;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
 		ha[i] = i;
@@ -454,7 +460,7 @@ int main(int argc, char **argv){
 	//printVec<<<1,1>>>(lfv); kernelCallCheck();
 
 	// TODO use ratio (3rd arg) in insertion
-	run_experiment(lfv, size, 2);
+	run_experiment(lfv, size, 1);
 
 	return 0;
 
