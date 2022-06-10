@@ -111,8 +111,6 @@ __global__ void load_matrices() {
 
 __inline__ __device__ float tensor_block_scan(half val) {
 	__shared__ half vals[BSIZE];
-	//__shared__ half upper_triang[256];
-	//__shared__ half lower_triang[256];
 	__shared__ half add[4];
 	int tid = threadIdx.x;
 	int wid = tid / WARPSIZE;
@@ -146,7 +144,6 @@ __inline__ __device__ float tensor_block_scan(half val) {
 		wmma::mma_sync(c_frag, a_frag, b_frag, au_frag);
 
 		wmma::store_matrix_sync(vals + wid*256, c_frag, 16,  wmma::mem_row_major);
-
 	}
 	__syncthreads();
 
@@ -170,7 +167,7 @@ __global__ void tensor_scan(int *C, int *A, int *s, int n) {
 	__shared__ int ss;
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	float pval = tid < n ? A[tid] : 0;
-	printf("n  tid %d: %f\n", tid, pval);
+	//printf("n  tid %d: %f\n", tid, pval);
 	__syncthreads();
 	int val = tensor_block_scan(pval);
 	__syncthreads();
@@ -194,7 +191,7 @@ __device__ void insert_tensor_scan(int *a, int e, int *size, int q) {
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	int n = *size;
 	float pval = tid < n ? q : 0;
-	printf("n  tid %d: %f\n", tid, pval);
+	//printf("n  tid %d: %f\n", tid, pval);
 	__syncthreads();
 	int val = tensor_block_scan(pval);
 	__syncthreads();
@@ -202,22 +199,23 @@ __device__ void insert_tensor_scan(int *a, int e, int *size, int q) {
 	if (tid >= n) return;
         if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
                 a[n + blockIdx.x] = atomicAdd(size, val);
-		printf("tid %d: %d\n", tid, *size);
+		printf("bid %d: %d\n", blockIdx.x, *size);
         }
         __syncthreads();
-	int asd = a[n + blockIdx.x];
-	int idx = val + asd - q;
+	int ss = a[n + blockIdx.x];
+	int idx = val + ss - q;
         __syncthreads();
 	//printf("tid %d: %d\n", tid, idx);
 	if (q)
 		a[idx] = e;
 }
 
+
 // test
 __global__ void test_insert(int* v, int n, int *size) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
-	if (tid >= n) return;
-	insert_tensor_scan(v, v[tid], size, 1);
+	int q = tid >= n ? 0 : 1;
+	insert_tensor_scan(v, v[tid], size, q);
 }
 
 void test_scan(int n) {
@@ -264,6 +262,30 @@ void test_scan(int n) {
 
 }
 
+void test_insert_scan(int size) {
+	int *a, *ha;
+	int *dsize;
+	ha = new int[size];
+	for (int i = 0; i < size; ++i) {
+		ha[i] = i;
+	}
+	gpuErrCheck( cudaMalloc(&a, 2*size*sizeof(int)) );
+	gpuErrCheck( cudaMalloc(&dsize, sizeof(int)) );
+	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
+	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );
+
+	test_insert<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
+	cudaDeviceSynchronize();
+	
+	int *ha2 = new int[2*size];
+	cudaMemcpy(ha2, a, sizeof(int)*size*2, cudaMemcpyDeviceToHost);
+	print_array(ha2, size*2);
+
+}
+
+
+
+
 void run_experiment() {
 	int size = 1<<19;
 	int ratio = 1;
@@ -304,34 +326,18 @@ void run_experiment() {
 
 
 int main(int argc, char **argv){
-	if (argc < 2) {
-                fprintf(stderr, "Ejecutar como ./prog n\n");
+	if (argc < 3) {
+                fprintf(stderr, "Ejecutar como ./prog n mode\n");
                 return -1;
         }
         int size = atoi(argv[1]);
+        int mode = atoi(argv[2]);
 
-	test_scan(size);
+	if (mode == 0)
+		test_scan(size);
+	else if (mode == 1)
+		test_insert_scan(size);
 	//run_experiment();
-	return 0;
-
-	int *a, *ha;
-	int *dsize;
-	ha = new int[size];
-	for (int i = 0; i < size; ++i) {
-		ha[i] = i;
-	}
-	gpuErrCheck( cudaMalloc(&a, 2*size*sizeof(int)) );
-	gpuErrCheck( cudaMalloc(&dsize, sizeof(int)) );
-	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
-	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );
-
-	test_insert<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
-	cudaDeviceSynchronize();
-	
-	int *ha2 = new int[2*size];
-	cudaMemcpy(ha2, a, sizeof(int)*size*2, cudaMemcpyDeviceToHost);
-	print_array(ha2, size*2);
-
 
 
 	return 0;
