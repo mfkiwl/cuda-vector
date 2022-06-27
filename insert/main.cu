@@ -128,11 +128,11 @@ __global__ void load_matrices() {
 }
 */
 
-__device__ float tensor_block_scan(half val) {
-	__shared__ half vals[BSIZE];
-	__shared__ half upper_triang[256];
-	__shared__ half lower_triang[256];
-	__shared__ half add[256];
+__device__ float tensor_block_scan(half val,
+		half vals[BSIZE],
+		half upper_triang[256],
+		half lower_triang[256],
+		half add[256]) {
 	int tid = threadIdx.x;
 	if  (tid < 256) {
 		int i = tid / 16;
@@ -195,53 +195,55 @@ __device__ float tensor_block_scan(half val) {
 }
 
 __global__ void tensor_scan(int *C, int *A, int *s, int n) {
-	alignas(16) __shared__ int ss;
+	__shared__ half vals[BSIZE];
+	__shared__ half upper[256];
+	__shared__ half lower[256];
+	__shared__ half add[4];
+	__shared__ int ss;
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	float pval = tid < n ? A[tid] : 0;
 	//printf("n  tid %d: %f\n", tid, pval);
 	__syncthreads();
-	int val = tensor_block_scan(pval);
+	int val = tensor_block_scan(pval, vals, upper, lower, add);
 	__syncthreads();
 	printf("tid %d: %d\n", tid, val);
 	if (tid < n) {
 		if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
-			C[blockIdx.x] = atomicAdd(s, val);
-			//ss = atomicAdd(s, val);
+			ss = atomicAdd(s, val);
 		}
 		__syncthreads();
-		ss = C[blockIdx.x];
-		int asd = ss;
-		//int asd = C[blockIdx.x];
-		__syncthreads();
-		C[tid] = val + asd - A[tid];
+		C[tid] = val + ss - A[tid];
 	}
 }
 
 __global__ void test_block(int *out) {
 	int tid = threadIdx.x;
-	int val = tensor_block_scan(1);
-	out[tid] = (int)val;
+	//int val = tensor_block_scan(1);
+	//out[tid] = (int)val;
 }
 
 __device__ void insert_tensor_scan(int *a, int e, int *size, int q) {
+	__shared__ half vals[BSIZE];
+	__shared__ half upper[256];
+	__shared__ half lower[256];
+	__shared__ half add[4];
+	__shared__ int ss;
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	int n = *size;
 	float pval = tid < n ? q : 0;
-	printf("n  tid %d: %f\n", tid, pval);
+	//printf("n  tid %d: %f\n", tid, pval);
 	__syncthreads();
-	int val = tensor_block_scan(pval);
+	int val = tensor_block_scan(pval, vals, upper, lower, add);
 	__syncthreads();
-	printf("tid %d: %d\n", tid, val);
+	//printf("tid %d: %d\n", tid, val);
 	if (tid < n) {
 		if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
-			a[n + blockIdx.x] = atomicAdd(size, val);
-			printf("bid %d: idx0: %d, size: %d\n", blockIdx.x, a[n+blockIdx.x], *size);
+			ss = atomicAdd(size, val);
+			//printf("bid %d: idx0: %d, size: %d\n", blockIdx.x, a[n+blockIdx.x], *size);
 		}
 		__syncthreads();
-		int ss = a[n + blockIdx.x];
 		int idx = val + ss - q;
-		__syncthreads();
-		printf("idx tid %d: %d\n", tid, idx);
+		//printf("idx tid %d: %d\n", tid, idx);
 		if (q)
 			a[idx] = e;
 	}
