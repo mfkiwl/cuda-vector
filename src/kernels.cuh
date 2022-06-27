@@ -253,7 +253,7 @@ __global__ void printVec(Vector<int, NB> *v) {
 		printf("%d ", v->lfv[i].size);
 	}
 	printf("\n");
-	return;
+	//return;
 	for (int i = 0; i < v->size; ++i) {
 		printf("%d ", v->at(i));
 	}

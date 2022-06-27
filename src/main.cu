@@ -14,7 +14,7 @@
 
 
 void run_mlfv_NB() {
-	int size = 1 << 20;
+	int size = 1 << 25;
 	int *a, *ha;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
@@ -61,7 +61,7 @@ void run_mlfv1024(int op, int size) {
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	
 	// LFV
-	const int NB = 1024;
+	const int NB = 512;
 	Vector<int, NB> *lfv;
 	gpuErrCheck( cudaMalloc(&lfv, sizeof(Vector<int, NB>)) );
 
