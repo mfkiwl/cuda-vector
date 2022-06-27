@@ -30,7 +30,7 @@ void optimal_NB(Vector<int, NB> *v, int size, int ratio) {
 	printf("%d,%d,%f,", size, NB, time);
 
 
-	printVec<<<1,1>>>(v);
+	//printVec<<<1,1>>>(v);
 	get_size<<<1,1>>>(ds, v);
 	cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
 	//fprintf(stderr, "size  %d \n", size); 

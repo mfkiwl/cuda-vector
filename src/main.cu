@@ -9,7 +9,7 @@
 
 #define BSIZE 1024
 #ifndef NUM_BLOCKS
-#define NUM_BLOCKS  1024
+#define NUM_BLOCKS 514
 #endif
 
 
