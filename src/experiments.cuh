@@ -254,7 +254,7 @@ void rw_experiment(Vector<int, NB> *v, int size, int ratio, int rw_mode) {
 		get_size<<<1,1>>>(ds, v);
 		cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
 		start_clock(start, stop);
-		if (rw_mode == 0) {
+		if (rw_mode == 1) {
 			test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size, rw_rep); kernelCallCheck();
 		} else {
 			test_read_write_b<<<NB, BSIZE>>>(v, rw_rep); kernelCallCheck();
