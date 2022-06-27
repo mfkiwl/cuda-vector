@@ -272,10 +272,85 @@ void rw_experiment(Vector<int, NB> *v, int size, int ratio, int rw_mode) {
 	printf("%f\n", results[rep-1]);
 }
 
-void rw_experiment(CUcontext ctx, int size, int ratio) {
-	int rep = REP;
-	int rw_rep = RW_REP;
+template<int NB>
+void run_experiment(Vector<int, NB> *v, int size, int ratio) {
+	int *ds;
+	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
+
+	int rep = 10;
+	int size_exp = 29 - rep;
+	size = 1 << size_exp;
+	int rw_rep = 10;
 	int o_size = size;
+	createLFVector<<<1,1>>>(v); kernelCallCheck();
+	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
+	//printVec<<<1,1>>>(v); kernelCallCheck();
+	float results[rep];
+	float results_grow[rep];
+	float results_rw[rw_rep];
+	int rw_kernel_rep = RW_REP;
+
+	for (int i = 0; i < rep; ++i) {
+		// grow
+		cudaEvent_t start, stop;
+		start_clock(start, stop);
+		growVec<<<1,NB>>>(v, 2*size);
+		cudaDeviceSynchronize();
+		results_grow[i] = stop_clock(start, stop);
+		//printVec<<<1,1>>>(v); kernelCallCheck();
+
+		// insertion
+		start_clock(start, stop);
+		test_insert2<<<NB, BSIZE>>>(v); kernelCallCheck();
+		cudaDeviceSynchronize();
+		results[i] = stop_clock(start, stop);
+
+		// read/write
+		results_rw[i] = 0.0;
+		for (int j = 0; j < rw_rep; ++j) {
+			cudaEvent_t start, stop;
+				get_size<<<1,1>>>(ds, v);
+				cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
+			start_clock(start, stop);
+			// wr block
+				test_read_write_b<<<NB, BSIZE>>>(v, rw_kernel_rep);
+			// wr global - slow
+				//test_read_write_g<<<gridSize(size, BSIZE), BSIZE>>>(v, size, rw_kernel_rep);
+			cudaDeviceSynchronize();
+			results_rw[i] += stop_clock(start, stop);
+		}
+		results_rw[i] /= rw_rep;
+		size *= 2;
+	}
+	
+	// print results
+	// grow
+	printf("mlfv%d,grow,%d,%d,", NB, o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_grow[i]);
+	}
+	printf("%f\n", results_grow[rep-1]);
+	// insert
+	printf("mlfv%d,in,%d,%d,", NB, o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results[i]);
+	}
+	printf("%f\n", results[rep-1]);
+	//printf("%f\n", s);
+	// read-write
+	printf("mlfv%d,rw%d,%d,%d,", NB, rw_kernel_rep, o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_rw[i]);
+	}
+	printf("%f\n", results_rw[rep-1]);
+}
+
+
+void run_experiment(CUcontext ctx, int size, int ratio) {
+	int rep = 10;
+	int rw_rep = 30;
+	int o_size = size;
+	int rw_kernel_rep = RW_REP;
 	int *ds;
 	cudaMalloc(&ds, sizeof(int));
 	cudaMemcpy(ds, &size, sizeof(int), cudaMemcpyHostToDevice);
@@ -286,37 +361,62 @@ void rw_experiment(CUcontext ctx, int size, int ratio) {
 	initVec<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size); kernelCallCheck();
 
 	float results[rep];
+	float results_grow[rep];
+	float results_rw[rw_rep];
 	
 	for (int i = 0; i < rep; ++i) {
-		cudaEvent_t start, stop;
+
 		// grow
+		cudaEvent_t start, stop;
+		start_clock(start, stop);
 		a.grow(size*2*sizeof(int));
 		cudaDeviceSynchronize();
+		results_grow[i] = stop_clock(start, stop);
 		
 		// insertion
-		test_insert_atomic<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size, ds); kernelCallCheck();
+		start_clock(start, stop);
+		test_insert_atomic<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size, ds);
 		cudaDeviceSynchronize();
+		results[i] = stop_clock(start, stop);
 		cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
 
 		// read/write
+		results_rw[i] = 0.0;
 		CUdeviceptr dp = a.getPointer();
-		start_clock(start, stop);
-		test_read_write<<<gridSize(size, 1024), 1024>>>(dp, size, rw_rep); kernelCallCheck();
-		cudaDeviceSynchronize();
-		results[i] = stop_clock(start, stop);
+		for (int j = 0; j < rw_rep; ++j) {
+			cudaEvent_t start, stop;
+			start_clock(start, stop);
+			test_read_write<<<gridSize(size, 1024), 1024>>>(dp, size, rw_kernel_rep);
+			cudaDeviceSynchronize();
+			results_rw[i] += stop_clock(start, stop);
+		}
+		results_rw[i] /= rw_rep;
 	}
 
-	printf("memMap,rw%d,%d,%d,", rw_rep, o_size, ratio);
+	// print results
+	printf("memMap,grow,%d,%d,", o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_grow[i]);
+	}
+	printf("%f\n", results_grow[rep-1]);
+	printf("memMap,in,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
+	//printf("%f\n", s);
+	printf("memMap,rw%d,%d,%d,", rw_kernel_rep, o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_rw[i]);
+	}
+	printf("%f\n", results_rw[rep-1]);
 }
 
-void rw_experiment(int size, int ratio) {
-	int rep = REP;
-	int rw_rep = RW_REP;
+void run_experiment(int size, int ratio) {
+	int rep = 10;
+	int rw_rep = 30;
 	int o_size = size;
+	int rw_kernel_rep = RW_REP;
 
 	int *a, *ha;
 	int *dsize;
@@ -331,28 +431,38 @@ void rw_experiment(int size, int ratio) {
 
 
 	float results[rep];
+	float results_rw[rw_rep];
 
 	for (int i = 0; i < rep; ++i) {
 		cudaEvent_t start, stop;
-		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
+		start_clock(start, stop);
+		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
 		cudaDeviceSynchronize();
+		results[i] = stop_clock(start, stop);
 		cudaMemcpy(&size, dsize, sizeof(int), cudaMemcpyDeviceToHost);
 
 		// read/write
-		start_clock(start, stop);
-		test_read_write<<<gridSize(size, 1024), 1024>>>(a, size, rw_rep); kernelCallCheck();
-		cudaDeviceSynchronize();
-		results[i] = stop_clock(start, stop);
+		results_rw[i] = 0.0;
+		for (int j = 0; j < rw_rep; ++j) {
+			cudaEvent_t start, stop;
+			start_clock(start, stop);
+			test_read_write<<<gridSize(size, 1024), 1024>>>(a, size, rw_kernel_rep);
+			cudaDeviceSynchronize();
+			results_rw[i] += stop_clock(start, stop);
+		}
+		results_rw[i] /= rw_rep;
 	}
 
 	// print results
-	printf("static,rw%d,%d,%d,", rw_rep, o_size, ratio);
+	printf("static,in,%d,%d,", o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
 	printf("%f\n", results[rep-1]);
+	//printf("%f\n", s);
+	printf("static,rw%d,%d,%d,", rw_kernel_rep, o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results_rw[i]);
+	}
+	printf("%f\n", results_rw[rep-1]);
 }
-
-
-
-
