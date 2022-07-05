@@ -21,9 +21,31 @@ __global__ void atomic(int *C, int *A, int *s, int n) {
         C[tid] = atomicAdd(s, A[tid]);
 }
 
+__device__ void insert_atomic1(int *a, int e, int *size, int q) {
+	__shared__ int ss;
+	__shared__ int idx_g;
+	int idx_b;
+	if (threadIdx.x == 0)
+		ss = 0;
+	__syncthreads();
+	if (q) {
+		int idx_b = atomicAdd(size, 1);
+		//a[idx] = e;
+	}
+	__syncthreads();
+	if (threadIdx.x == 0)
+		idx_g = atomicAdd(size, ss);
+	__syncthreads();
+	if (q)
+		a[idx_g + idx_b] = e;
+}
 __device__ void insert_atomic(int *a, int e, int *size, int q) {
-	int idx = atomicAdd(size, 1);
-	a[idx] = e;
+	if (threadIdx.x == 0)
+		printf("bid %i, s %i\n", blockIdx.x, *size);
+	if (q) {
+		int idx = atomicAdd(size, 1);
+		a[idx] = e;
+	}
 }
 
 
@@ -251,10 +273,25 @@ __device__ void insert_tensor_scan(int *a, int e, int *size, int q) {
 
 
 // test
-__global__ void test_insert(int* v, int n, int *size) {
+__global__ void test_insert_atomic(int* v, int n, int *size) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	int q = tid >= n ? 0 : 1;
-	insert_tensor_scan(v, tid + n, size, q);
+	if (tid > n) return;
+	insert_atomic(v, tid, size, q);
+	//if (tid == n-1)
+		//printf("tid %i  *size %i\n", tid, *size);
+}
+
+__global__ void test_insert_scan(int* v, int n, int *size) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	int q = tid >= n ? 0 : 1;
+	insert_scan(v, tid, size, q);
+}
+
+__global__ void test_insert_tensor_scan(int* v, int n, int *size) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	int q = tid >= n ? 0 : 1;
+	insert_tensor_scan(v, tid, size, q);
 }
 
 void test_scan(int n) {
@@ -311,7 +348,7 @@ void test_insert_scan(int size) {
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );
 
-	test_insert<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
+	test_insert_scan<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
 	cudaDeviceSynchronize();
 	
 	int *ha2 = new int[2*size];
@@ -320,10 +357,7 @@ void test_insert_scan(int size) {
 
 }
 
-
-
-
-void run_experiment() {
+void run_experiment(int insert_function) {
 	int size = 1<<19;
 	int ratio = 1;
 	int rep = 10;
@@ -339,17 +373,29 @@ void run_experiment() {
 	gpuErrCheck( cudaMalloc(&dsize, sizeof(int)) );
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );
+	gpuErrCheck( cudaMemcpyToSymbol(d_size, &size, sizeof(int)) );
 
 
 	float results[rep];
 
 	for (int i = 0; i < rep; ++i) {
+		fprintf(stderr, "%d %d \n", i, size);
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
-		test_insert<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
+		switch (insert_function) {
+			case 0: test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
+				break;
+			case 1: test_insert_scan<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
+				break;
+			case 2: test_insert_tensor_scan<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
+				break;
+		}
+		kernelCallCheck();
 		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
-		cudaMemcpy(&size, dsize, sizeof(int), cudaMemcpyDeviceToHost);
+		//cudaMemcpy(&size, dsize, sizeof(int), cudaMemcpyDeviceToHost);
+		//gpuErrCheck( cudaMemcpyFromSymbol(&size, d_size, sizeof(int)) );
+		size = size * 2;
 	}
 
 	// print results
@@ -363,20 +409,20 @@ void run_experiment() {
 
 
 int main(int argc, char **argv){
-	if (argc < 3) {
-                fprintf(stderr, "Ejecutar como ./prog n mode\n");
+	if (argc < 2) {
+                fprintf(stderr, "Ejecutar como ./prog insert_fun\n");
                 return -1;
         }
-        int size = atoi(argv[1]);
-        int mode = atoi(argv[2]);
+        //int size = atoi(argv[1]);
+        int mode = atoi(argv[1]);
 
 	//load_matrices<<<1,256>>>(); kernelCallCheck();
 
-	if (mode == 0)
-		test_scan(size);
-	else if (mode == 1)
-		test_insert_scan(size);
-	//run_experiment();
+	//if (mode == 0)
+		//test_scan(size);
+	//else if (mode == 1)
+		//test_insert_scan(size);
+	run_experiment(mode);
 
 
 	return 0;

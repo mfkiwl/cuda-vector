@@ -54,6 +54,7 @@ void run_experiment(int size, int ratio) {
 	float results_rw[rw_rep];
 
 	for (int i = 0; i < rep; ++i) {
+		fprintf(stderr, "%d %d \n", i, size);
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
 		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);

@@ -436,7 +436,7 @@ void run_experiment(int size, int ratio) {
 	for (int i = 0; i < rep; ++i) {
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
-		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
+		test_insert_atomic<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize); kernelCallCheck();
 		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
 		cudaMemcpy(&size, dsize, sizeof(int), cudaMemcpyDeviceToHost);

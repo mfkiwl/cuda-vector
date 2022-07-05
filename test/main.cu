@@ -1,49 +1,44 @@
 #include <iostream>
 #include <cuda.h>
+#include <thrust/device_vector.h>
 #include "../common/utility.cuh"
+#include "../stdgpu/src/stdgpu/vector.cuh"
 
-#define BSIZE 1024
-
-void fun1() {
-	int x = 0;
-	for (int i = 0; i < 1000; ++i) {
-		x++;
-	}
-	std::cout << "fun1" << std::endl;
-}
-
-void fun2() {
-	int x = 0;
-	for (int i = 0; i < 10000000; ++i) {
-		x++;
-	}
-	std::cout << "fun2" << std::endl;
-}
-
-template <int N, class C>
-float measure_time(float a[N], C fun) {
-	float s = 0.0;
+void run_experiment_thrist() {
+	int size = 1 << 19;
 	int rep = 10;
+	int o_size = size;
+	int ratio = 1;
+	thrust::device_vector<int> d_vec(size);
+
+	float results[rep];
+
 	for (int i = 0; i < rep; ++i) {
-		cudaEvent_t start1, stop1;
-		start_clock(start1, stop1);
-		{
-			fun();
-		}
-		s += stop_clock(start1, stop1);
+		cudaEvent_t start, stop;
+		start_clock(start, stop);
+		d_vec.resize(2*size);
+		cudaDeviceSynchronize();
+		results[i] = stop_clock(start, stop);
+
+
+		size *= 2;
 	}
-	std::cout << N << std::endl;
-	return s / rep;
+
+	printf("thrust,gr,%d,%d,", o_size, ratio);
+	for (int i = 0; i < rep-1; ++i) {
+		printf("%f,", results[i]);
+	}
+	printf("%f\n", results[rep-1]);
+}
+
+void test() {
+	stdgpu::vector vec = sdtgpu::vector();
 }
 
 int main(int argc, char* argv[]) {
 	
-	float a[10];
-	float time = measure_time(a, []{
-		fun1();
-		fun2();}
-	);
-	std::cout << time << std::endl;
+	//run_experiment_thrust();
+	test();
 
 	return 0;
 }
