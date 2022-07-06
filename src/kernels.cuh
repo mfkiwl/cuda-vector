@@ -66,16 +66,16 @@ __device__ void LFVector<T>::new_bucket(unsigned int b) {
 		int bsize = 1 << (logFBS + b);
 		a[b] = (T*)malloc(sizeof(T) * bsize);
 	}
-	__syncthreads();
 }
 
 template <typename T>
 __device__ void LFVector<T>::push_back(T e) {
 	int idx = atomicAdd(&size, 1);
 	int b = get_bucket(idx);
-	while (a[b] == nullptr) {
+	if (a[b] == nullptr) {
 		new_bucket(b);
 	}
+	__syncthreads();
 	at(idx) = e;
 }
 

@@ -21,27 +21,9 @@ __global__ void atomic(int *C, int *A, int *s, int n) {
         C[tid] = atomicAdd(s, A[tid]);
 }
 
-__device__ void insert_atomic1(int *a, int e, int *size, int q) {
-	__shared__ int ss;
-	__shared__ int idx_g;
-	int idx_b;
-	if (threadIdx.x == 0)
-		ss = 0;
-	__syncthreads();
-	if (q) {
-		int idx_b = atomicAdd(size, 1);
-		//a[idx] = e;
-	}
-	__syncthreads();
-	if (threadIdx.x == 0)
-		idx_g = atomicAdd(size, ss);
-	__syncthreads();
-	if (q)
-		a[idx_g + idx_b] = e;
-}
 __device__ void insert_atomic(int *a, int e, int *size, int q) {
-	if (threadIdx.x == 0)
-		printf("bid %i, s %i\n", blockIdx.x, *size);
+	//if (threadIdx.x == 0)
+		//printf("bid %i, s %i\n", blockIdx.x, *size);
 	if (q) {
 		int idx = atomicAdd(size, 1);
 		a[idx] = e;
@@ -369,17 +351,18 @@ void run_experiment(int insert_function) {
 	for (int i = 0; i < size; ++i) {
 		ha[i] = i;
 	}
-	gpuErrCheck( cudaMalloc(&a, 2*size*2^rep*sizeof(int)) );
+	//gpuErrCheck( cudaMalloc(&a, 2*size*2^rep*sizeof(int)) );
+	gpuErrCheck( cudaMalloc(&a, (1<<29)*sizeof(int)) );
 	gpuErrCheck( cudaMalloc(&dsize, sizeof(int)) );
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );
-	gpuErrCheck( cudaMemcpyToSymbol(d_size, &size, sizeof(int)) );
+	//gpuErrCheck( cudaMemcpyToSymbol(d_size, &size, sizeof(int)) );
 
 
 	float results[rep];
 
 	for (int i = 0; i < rep; ++i) {
-		fprintf(stderr, "%d %d \n", i, size);
+		//fprintf(stderr, "%d %d \n", i, size);
 		cudaEvent_t start, stop;
 		start_clock(start, stop);
 		switch (insert_function) {
@@ -390,7 +373,7 @@ void run_experiment(int insert_function) {
 			case 2: test_insert_tensor_scan<<<gridSize(size, BSIZE), BSIZE>>>(a, size, dsize);
 				break;
 		}
-		kernelCallCheck();
+		//kernelCallCheck();
 		cudaDeviceSynchronize();
 		results[i] = stop_clock(start, stop);
 		//cudaMemcpy(&size, dsize, sizeof(int), cudaMemcpyDeviceToHost);
@@ -399,7 +382,16 @@ void run_experiment(int insert_function) {
 	}
 
 	// print results
-	printf("static,in,%d,%d,", o_size, ratio);
+	char *op;
+	switch (insert_function) {
+		case 0: op = "atomic";
+			break;
+		case 1: op = "scan";
+			break;
+		case 2: op = "tensor_scan";
+			break;
+	}
+	printf("static,%s,%d,%d,", op, o_size, ratio);
 	for (int i = 0; i < rep-1; ++i) {
 		printf("%f,", results[i]);
 	}
