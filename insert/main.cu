@@ -30,7 +30,6 @@ __device__ void insert_atomic(int *a, int e, int *size, int q) {
 	}
 }
 
-
 // scan
 __inline__ __device__ int warp_scan(int val, int lane){
 	for (int offset = 1; offset < WARPSIZE; offset <<= 1) {
@@ -221,7 +220,7 @@ __global__ void tensor_scan(int *C, int *A, int *s, int n) {
 }
 
 __global__ void test_block(int *out) {
-	int tid = threadIdx.x;
+	//int tid = threadIdx.x;
 	//int val = tensor_block_scan(1);
 	//out[tid] = (int)val;
 }

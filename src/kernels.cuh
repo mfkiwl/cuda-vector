@@ -28,7 +28,7 @@ struct LFVector {
 	__device__ T& at(unsigned int i);
 	__device__ int get_bucket(unsigned int i);
 	__device__ void new_bucket(unsigned int b);
-	__device__ void push_back(T e);
+	__device__ void push_back(T e, int q);
 	__device__ void grow(unsigned int n);
 };
 
@@ -69,14 +69,18 @@ __device__ void LFVector<T>::new_bucket(unsigned int b) {
 }
 
 template <typename T>
-__device__ void LFVector<T>::push_back(T e) {
-	int idx = atomicAdd(&size, 1);
-	int b = get_bucket(idx);
-	if (a[b] == nullptr) {
-		new_bucket(b);
+__device__ void LFVector<T>::push_back(T e, int q) {
+	int idx;
+	if (q) {
+		idx = atomicAdd(&size, 1);
+		int b = get_bucket(idx);
+		if (a[b] == nullptr) {
+			new_bucket(b);
+		}
 	}
 	__syncthreads();
-	at(idx) = e;
+	if (q)
+		at(idx) = e;
 }
 
 template <typename T>
@@ -111,33 +115,49 @@ __device__ Vector<T, NB>::Vector() {
 	}
 }
 
+/*
 template <typename T, int NB>
 __device__ T& Vector<T, NB>::at(unsigned int i) {
-	// TODO use warp instructions
 	int b = NB-1;
 	while (i < ranges[b]) {
 		--b;
 	}
 	return lfv[b].at(i-ranges[b]);
 }
+*/
+
+template <typename T, int NB>
+__device__ T& Vector<T, NB>::at(unsigned int i) {
+	int l = 0;
+	int r = NB-1;
+	int m = (l+r+1)/2;
+	while (r > l) {
+		if (i < ranges[m])
+			r = m-1;
+		else
+			l = m;
+		m = (l+r+1)/2;
+	}
+	int b = r;
+	return lfv[b].at(i-ranges[b]);
+}
 
 template <typename T, int NB>
 __device__ void Vector<T, NB>::insert(T e, int q) {
-	__shared__ int inserted;
-	if (q == 0 && threadIdx.x != 0)
-		return;
-	if (threadIdx.x == 0)
+	int __shared__ inserted;
+	int tid = threadIdx.x;
+	if (tid == 0)
 		inserted = 0;
 	__syncthreads();
 	int bid = blockIdx.x;
-	lfv[bid].push_back(e);
-	atomicAdd(&inserted, 1);
+	lfv[bid].push_back(e, q);
+	if (q)
+		atomicAdd(&inserted, 1);
 	__syncthreads();
-	if (threadIdx.x > blockIdx.x && threadIdx.x < NB)
-		atomicAdd(ranges+threadIdx.x, inserted);
-	//if (threadIdx.x == 0)
-		//atomicAdd(&size, inserted);
-		atomicAdd(&size, 1);
+	if (tid > blockIdx.x && tid < NB)
+		atomicAdd(ranges+tid, inserted);
+	if (tid == 0)
+		atomicAdd(&size, inserted);
 }
 
 template <typename T, int NB>
@@ -170,14 +190,19 @@ __global__ void initVec(Vector<T, NB> *v, unsigned int n) {
 	int tid = threadIdx.x;
 	int bsize = n / NB;
 	int start;
-	if (bid < n % NB) {
+	if (bid < (n % NB)) {
 		++bsize;
 		start = bsize * bid;
 	} else {
 		start = bsize * bid + n%NB;
 	}
-	for (int i = tid; i < bsize && bid*NB+i < n; i += BSIZE) {
-		v->insert(start+i, 1);
+	int bs_block = bsize + BSIZE - (bsize % BSIZE);
+	//if (tid == 0)
+		//printf("bid %i  bs %i\n", bid, bsize);
+	//for (int i = tid; i < bsize && (bid*NB+i) < n; i += BSIZE) {
+	for (int i = tid; i < bs_block; i += BSIZE) {
+		int q = i < bsize;
+		v->insert(start+i, q);
 	}
 }
 
@@ -193,8 +218,10 @@ __global__ void initVec(Vector<T, NB> *v, unsigned int n, T* in) {
 	} else {
 		start = bsize * bid + n%NB;
 	}
-	for (int i = tid; i < bsize && bid*NB+i < n; i += BSIZE) {
-		v->insert(in[start+i], 1);
+	int bs_block = bsize + BSIZE - (bsize % BSIZE);
+	for (int i = tid; i < bs_block; i += BSIZE) {
+		int q = i < bsize;
+		v->insert(in[start+i], q);
 	}
 }
 
@@ -253,12 +280,14 @@ __global__ void printVec(Vector<int, NB> *v) {
 		printf("%d ", v->lfv[i].size);
 	}
 	printf("\n");
-	//return;
+	return;
+	/*
 	for (int i = 0; i < v->size; ++i) {
 		printf("%d ", v->at(i));
 	}
 	printf("\n");
 	printf("last element: %d\n", v->at(v->size - 1));
+	*/
 }
 
 // low level memMap
@@ -460,8 +489,10 @@ inline __device__ int &at(CUdeviceptr d_p, int i) {
 }
 
 __device__ void insert_atomic(CUdeviceptr d_p, int e, int *size, int q) {
-	int idx = atomicAdd(size, 1);
-	at(d_p, idx) = e;
+	if (q) {
+		int idx = atomicAdd(size, 1);
+		at(d_p, idx) = e;
+	}
 }
 
 __global__ void initVec(CUdeviceptr d_p, unsigned int n) {
@@ -483,6 +514,8 @@ inline __device__ int &at(int *a, unsigned int i) {
 }
 
 __device__ void insert_atomic(int *a, int e, int *size, int q) {
-	int idx = atomicAdd(size, 1);
-	a[idx] = e;
+	if (q) {
+		int idx = atomicAdd(size, 1);
+		a[idx] = e;
+	}
 }

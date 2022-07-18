@@ -4,7 +4,7 @@
 #include "../common/utility.cuh"
 #include "../stdgpu/src/stdgpu/vector.cuh"
 
-void run_experiment_thrist() {
+void run_experiment_thrust() {
 	int size = 1 << 19;
 	int rep = 10;
 	int o_size = size;
@@ -32,13 +32,13 @@ void run_experiment_thrist() {
 }
 
 void test() {
-	stdgpu::vector vec = sdtgpu::vector();
+	//stdgpu::vector vec = sdtgpu::vector();
 }
 
 int main(int argc, char* argv[]) {
 	
-	//run_experiment_thrust();
-	test();
+	run_experiment_thrust();
+	//test();
 
 	return 0;
 }
