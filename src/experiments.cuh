@@ -89,15 +89,12 @@ void run_experiment(Vector<int, NB> *v, int size, int r1, int r2) {
 	int *ds;
 	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
 
-		fprintf(stderr, "start experiment\n");
 	int rep = 10;
 	int rw_rep = 10;
 	//size = 1000;
 	int o_size = size;
 	createLFVector<<<1,1>>>(v); kernelCallCheck();
-		//fprintf(stderr, "creat lfv \n");
 	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
-		//fprintf(stderr, "init lfv \n");
 	//printVec<<<1,1>>>(v); kernelCallCheck();
 	float results[rep];
 	float results_grow[rep];
@@ -243,7 +240,7 @@ void run_experiment(int size, int r1, int r2) {
 		ha[i] = i;
 	}
 	//gpuErrCheck( cudaMalloc(&a, 2*size*2^rep*sizeof(int)) );
-	gpuErrCheck( cudaMalloc(&a, (1<<29)*sizeof(int)) );
+	gpuErrCheck( cudaMalloc(&a, (1<<30)*sizeof(int)) );
 	gpuErrCheck( cudaMalloc(&dsize, sizeof(int)) );
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );

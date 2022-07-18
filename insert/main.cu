@@ -339,7 +339,8 @@ void test_insert_scan(int size) {
 }
 
 void run_experiment(int insert_function) {
-	int size = 1<<19;
+	//int size = 1<<19;
+	int size = 1e6;
 	int ratio = 1;
 	int rep = 10;
 	int o_size = size;
@@ -351,7 +352,7 @@ void run_experiment(int insert_function) {
 		ha[i] = i;
 	}
 	//gpuErrCheck( cudaMalloc(&a, 2*size*2^rep*sizeof(int)) );
-	gpuErrCheck( cudaMalloc(&a, (1<<29)*sizeof(int)) );
+	gpuErrCheck( cudaMalloc(&a, (1<<30)*sizeof(int)) );
 	gpuErrCheck( cudaMalloc(&dsize, sizeof(int)) );
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	gpuErrCheck( cudaMemcpy(dsize, &size, sizeof(int), cudaMemcpyHostToDevice) );

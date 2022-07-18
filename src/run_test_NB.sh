@@ -1,4 +1,4 @@
-for i in {5..10}
+for i in {1..10}
 do
 	echo -n "$i "
 	nvcc -O3 -DNUM_BLOCKS=$((1 << i)) -arch sm_75 main.cu -o prog -lcuda
