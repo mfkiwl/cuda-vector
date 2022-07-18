@@ -83,7 +83,8 @@ __global__ void test_insert_atomic(CUdeviceptr v, int n, int *size, int r1, int 
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= n) return;
 	int q = r1 > (tid % r2);
-	insert_atomic(v, at(v, tid), size, q);
+	//insert_atomic(v, at(v, tid), size, q);
+	insert_scan(v, at(v, tid), size, q);
 }
 
 __global__ void test_read_write(CUdeviceptr v, int size, int rep) {
@@ -101,7 +102,8 @@ __global__ void test_insert_atomic(int* v, int n, int *size, int r1, int r2) {
 	if (tid >= n) return;
 	int q = r1 > (tid % r2);
 	//printf("tid: %d   q %d   %d %d\n", tid, q, r1, r2);
-	insert_atomic(v, at(v, tid), size, q);
+	//insert_atomic(v, at(v, tid), size, q);
+	insert_scan(v, at(v, tid), size, q);
 }
 
 __global__ void test_read_write(int* v, int size, int rep) {

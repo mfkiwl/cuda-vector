@@ -5,7 +5,7 @@
 
 #define ull unsigned long long int
 #define BSIZE 1024
-#define PROB 90
+#define WARPSIZE 32
 #define FBS 1024
 #define logFBS 10
 using namespace std;
@@ -16,6 +16,38 @@ inline __device__ int log2i32(unsigned int n){
 
 inline __device__ int log2i64(unsigned long long int n){
 	return __clzll(n) ^ 63;
+}
+
+// scan
+__inline__ __device__ int warp_scan(int val, int lane){
+	for (int offset = 1; offset < WARPSIZE; offset <<= 1) {
+                int n = __shfl_up_sync(0xffffffff, val, offset, WARPSIZE);
+		if ((lane & 31) >= offset)
+			val += n;
+	}
+	return val;
+}
+
+__inline__ __device__ int block_scan(int val){
+        static __shared__ int shared[WARPSIZE];
+        int tid = threadIdx.x;
+        int lane = tid & (WARPSIZE-1);
+        int wid = tid/WARPSIZE;
+        val = warp_scan(val, lane);
+        if(lane == WARPSIZE-1)
+                shared[wid] = val;
+
+        __syncthreads();
+        if(wid == 0){
+                int t = (tid < blockDim.x/WARPSIZE) ? shared[lane] : 0;
+                t = warp_scan(t, lane);
+                shared[lane] = t;
+        }
+        __syncthreads();
+        if (wid > 0){
+                val += shared[wid-1];
+        }
+        return val;
 }
 
 // LFVector
@@ -82,6 +114,23 @@ __device__ void LFVector<T>::push_back(T e, int q) {
 	if (q)
 		at(idx) = e;
 }
+/*
+template <typename T>
+__device__ void LFVector<T>::push_back(T e, int q) {
+        //idx = atomicAdd(&size, 1);
+        int idx = block_scan(q);
+        __syncthreads();
+        int b = get_bucket(size + idx);
+        if (a[b] == nullptr) {
+                new_bucket(b);
+        }
+        __syncthreads();
+        if (threadIdx.x == BSIZE-1)
+                size += idx + q;
+        if (q)
+                at(idx) = e;
+}
+*/
 
 template <typename T>
 __device__ void LFVector<T>::grow(unsigned int n) {
@@ -495,6 +544,22 @@ __device__ void insert_atomic(CUdeviceptr d_p, int e, int *size, int q) {
 	}
 }
 
+__device__ void insert_scan(CUdeviceptr d_p, int e, int *size, int q) {
+        __shared__ int ss;
+        int tid = blockDim.x * blockIdx.x + threadIdx.x;
+	int n = *size;
+	if (tid >= n) return;
+        int val = block_scan(q);
+        if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
+                ss = atomicAdd(size, val);
+        }
+        __syncthreads();
+        int idx = val + ss - q;
+	//printf("tid %d: %d", tid, idx);
+	if (q)
+		at(d_p, idx) = e;
+}
+
 __global__ void initVec(CUdeviceptr d_p, unsigned int n) {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid >= n) return;
@@ -518,4 +583,20 @@ __device__ void insert_atomic(int *a, int e, int *size, int q) {
 		int idx = atomicAdd(size, 1);
 		a[idx] = e;
 	}
+}
+
+__device__ void insert_scan(int *a, int e, int *size, int q) {
+        __shared__ int ss;
+        int tid = blockDim.x * blockIdx.x + threadIdx.x;
+	int n = *size;
+	if (tid >= n) return;
+        int val = block_scan(q);
+        if (threadIdx.x == BSIZE - 1 || tid == n - 1) {
+                ss = atomicAdd(size, val);
+        }
+        __syncthreads();
+        int idx = val + ss - q;
+	//printf("tid %d: %d", tid, idx);
+	if (q)
+		a[idx] = e;
 }
