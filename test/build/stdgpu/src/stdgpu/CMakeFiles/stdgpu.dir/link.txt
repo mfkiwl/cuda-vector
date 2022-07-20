@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../bin/libstdgpu.a CMakeFiles/stdgpu.dir/impl/device.cpp.o CMakeFiles/stdgpu.dir/impl/iterator.cpp.o CMakeFiles/stdgpu.dir/impl/memory.cpp.o CMakeFiles/stdgpu.dir/impl/limits.cpp.o CMakeFiles/stdgpu.dir/cuda/impl/device.cpp.o CMakeFiles/stdgpu.dir/cuda/impl/memory.cpp.o
+/usr/bin/ranlib ../../bin/libstdgpu.a

@@ -27,6 +27,19 @@ __global__ void test_insert2(Vector<int, NB> *v, int r1, int r2) {
 }
 
 template<int NB>
+__global__ void test_insertk(Vector<int, NB> *v, int k) {
+	int tid = threadIdx.x;
+	int bs = v->lfv[blockIdx.x].size;
+	int bs_block = bs + BSIZE - (bs % BSIZE);
+	//printf("%d %d %d\n", tid, blockIdx.x, bs);
+	for (int i = tid; i < bs_block; i += BSIZE) {
+		int q = i < bs;
+		for (int i = 0; i < k; ++i)
+			v->insert(i, q);
+	}
+}
+
+template<int NB>
 __global__ void test_insert2_2(Vector<int, NB> *v) {
 	int tid = threadIdx.x;
 	int bs = v->lfv[blockIdx.x].size;
@@ -87,6 +100,14 @@ __global__ void test_insert_atomic(CUdeviceptr v, int n, int *size, int r1, int 
 	insert_scan(v, at(v, tid), size, q);
 }
 
+__global__ void test_insertk(CUdeviceptr v, int n, int *size, int k) {
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+	int q = tid < n;
+	//insert_atomic(v, at(v, tid), size, q);
+	for (int i = 0; i < k; ++i)
+		insert_scan(v, at(v, tid), size, q);
+}
+
 __global__ void test_read_write(CUdeviceptr v, int size, int rep) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	if (tid >= size) return;
@@ -112,4 +133,10 @@ __global__ void test_read_write(int* v, int size, int rep) {
 	for (int i = 0; i < rep; ++i) {
 		at(v, tid) += 1;
 	}
+}
+
+__global__ void dummy_test(CUdeviceptr d_p, int n) {
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if (tid > n) return;
+	at(d_p, tid) += 1;
 }

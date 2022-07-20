@@ -40,7 +40,7 @@ void run_mlfv64(int size, int r1, int r2) {
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	
 	// LFV
-	const int NB = 64;
+	const int NB = 32;
 	Vector<int, NB> *lfv;
 	gpuErrCheck( cudaMalloc(&lfv, sizeof(Vector<int, NB>)) );
 
@@ -57,7 +57,7 @@ void run_mlfv1024(int size, int r1, int r2) {
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	
 	// LFV
-	const int NB = 1024;
+	const int NB = 512;
 	Vector<int, NB> *lfv;
 	gpuErrCheck( cudaMalloc(&lfv, sizeof(Vector<int, NB>)) );
 
@@ -91,11 +91,54 @@ void run_size_test1024(int size) {
 	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
 	
 	// LFV
-	const int NB = 1024;
+	const int NB = 512;
 	Vector<int, NB> *lfv;
 	gpuErrCheck( cudaMalloc(&lfv, sizeof(Vector<int, NB>)) );
 
 	single_run_experiment(lfv, size);
+}
+
+void run_phases_app_mlfv(int size, int k, int q) {
+	cudaSetDevice(0);
+	CUcontext ctx;
+	cuDevicePrimaryCtxRetain(&ctx, 0);
+	cuCtxSetCurrent(ctx);
+
+	int *a, *ha;
+	ha = new int[size];
+	for (int i = 0; i < size; ++i) {
+		ha[i] = i;
+	}
+	gpuErrCheck( cudaMalloc(&a, size*sizeof(int)) );
+	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
+	
+	// LFV
+	const int NB = 512;
+	Vector<int, NB> *lfv;
+	gpuErrCheck( cudaMalloc(&lfv, sizeof(Vector<int, NB>)) );
+
+	phases_app_experiment(lfv, ctx, size, k, q);
+
+	cuDevicePrimaryCtxRelease(0);
+}
+
+void run_phases_app_memMap(int size, int k, int q) {
+	cudaSetDevice(0);
+	CUcontext ctx;
+	cuDevicePrimaryCtxRetain(&ctx, 0);
+	cuCtxSetCurrent(ctx);
+
+	int *a, *ha;
+	ha = new int[size];
+	for (int i = 0; i < size; ++i) {
+		ha[i] = i;
+	}
+	gpuErrCheck( cudaMalloc(&a, size*sizeof(int)) );
+	gpuErrCheck( cudaMemcpy(a, ha, size*sizeof(int), cudaMemcpyHostToDevice)) ;
+
+	phases_app_experiment(ctx, size, k, q);
+
+	cuDevicePrimaryCtxRelease(0);
 }
 
 int main(int argc, char **argv){
@@ -126,6 +169,20 @@ int main(int argc, char **argv){
 		}
 		int n = atoi(argv[2]);
 		run_size_test1024(n);
+		return 0;
+	}
+	if (structure > 11) {
+		if (argc < 4) {
+			fprintf(stderr,"error, run as ./prog 12/13 k q\n");
+			return -1;
+		}
+		int k = atoi(argv[2]);
+		int q = atoi(argv[3]);
+		int nf = 1e9;
+		switch (structure) {
+			case 12: run_phases_app_mlfv(nf, k, q); break;
+			case 13: run_phases_app_memMap(nf, k, q); break;
+		}
 		return 0;
 	}
 

@@ -99,7 +99,7 @@ __device__ void LFVector<T>::new_bucket(unsigned int b) {
 		a[b] = (T*)malloc(sizeof(T) * bsize);
 	}
 }
-
+/*
 template <typename T>
 __device__ void LFVector<T>::push_back(T e, int q) {
 	int idx;
@@ -114,7 +114,7 @@ __device__ void LFVector<T>::push_back(T e, int q) {
 	if (q)
 		at(idx) = e;
 }
-/*
+*/
 template <typename T>
 __device__ void LFVector<T>::push_back(T e, int q) {
         //idx = atomicAdd(&size, 1);
@@ -130,7 +130,6 @@ __device__ void LFVector<T>::push_back(T e, int q) {
         if (q)
                 at(idx) = e;
 }
-*/
 
 template <typename T>
 __device__ void LFVector<T>::grow(unsigned int n) {
@@ -142,6 +141,7 @@ __device__ void LFVector<T>::grow(unsigned int n) {
 	}
 }
 
+// Vector
 template <typename T, int NB>
 struct Vector {
 	unsigned int size;
@@ -283,6 +283,12 @@ template<typename T, int NB>
 __global__ void vec2array(T *out, Vector<T, NB> *v) {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	out[tid] = v->at(tid);
+}
+
+template<typename T, int NB>
+__global__ void array2vec(Vector<T, NB> *v, T *in) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	v->at(tid) = in[tid];
 }
 
 template<typename T, int NB>
@@ -599,4 +605,16 @@ __device__ void insert_scan(int *a, int e, int *size, int q) {
 	//printf("tid %d: %d", tid, idx);
 	if (q)
 		a[idx] = e;
+}
+
+template<typename T, int NB>
+__global__ void vec2array(CUdeviceptr d_p, Vector<T, NB> *v) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	at(d_p, tid) = v->at(tid);
+}
+
+template<typename T, int NB>
+__global__ void array2vec(Vector<T, NB> *v, CUdeviceptr d_p) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	v->at(tid) = at(d_p, tid);
 }

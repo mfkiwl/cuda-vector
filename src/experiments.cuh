@@ -1,6 +1,7 @@
 #include <cuda.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <cmath>
 #include "../common/utility.cuh"
 #include "tests.cuh"
 
@@ -22,7 +23,7 @@ void optimal_NB(Vector<int, NB> *v, int size) {
 	cudaEvent_t start, stop;
 	start_clock(start, stop);
 
-	growVec<<<1,NB>>>(v, 2*size);
+	//growVec<<<1,NB>>>(v, 2*size);
 	test_insert2<<<NB, BSIZE>>>(v, 1, 1); //kernelCallCheck();
 	cudaDeviceSynchronize();
 
@@ -283,4 +284,87 @@ void run_experiment(int size, int r1, int r2) {
 		printf("%f,", results_rw[i]);
 	}
 	printf("%f\n", results_rw[rep-1]);
+}
+
+template<int NB>
+void phases_app_experiment(Vector<int, NB> *v, CUcontext ctx, int nf, int k, int q) {
+	int *ds;
+	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
+
+	int rep = 5;
+	int size = nf / pow(k+1, rep);
+
+	//init memMap
+	cudaMalloc(&ds, sizeof(int));
+	cudaMemcpy(ds, &size, sizeof(int), cudaMemcpyHostToDevice);
+	VectorMemMap a = VectorMemMap(ctx);
+	a.grow(size*sizeof(int));
+
+	// init mlfv
+	initVec<<<gridSize(size, 1024), 1024>>>(a.getPointer(), size); kernelCallCheck();
+	createLFVector<<<1,1>>>(v); kernelCallCheck();
+	initVec<<<NB,BSIZE>>>(v, size); kernelCallCheck();
+	//printVec<<<1,1>>>(v); kernelCallCheck();
+	
+	cudaEvent_t start, stop;
+	start_clock(start, stop);
+	for (int i = 0; i < rep; ++i) {
+		// array->lfv
+		array2vec<<<gridSize(size, BSIZE), BSIZE>>>(v, a.getPointer());
+
+		// insertion
+		//fprintf(stderr, "insert %i\n", i);
+		test_insertk<<<NB, BSIZE>>>(v, k); //kernelCallCheck();
+
+		// aplanar
+		get_size<<<1,1>>>(ds, v);
+		cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
+		a.grow(size*sizeof(int));
+		vec2array<<<gridSize(size, BSIZE), BSIZE>>>(a.getPointer(), v);
+		//fprintf(stderr, "size: %d\n", size);
+
+		// simular q iteraciones
+		for (int j = 0; j < q; ++j) {
+			dummy_test<<<gridSize(size, BSIZE), BSIZE>>>(a.getPointer(), size); 
+		}
+	}
+	cudaDeviceSynchronize();
+	float time = stop_clock(start, stop);
+	printf("lfv%d,%d,%d,%d,%d,%f\n", NB, nf, rep, k, q, time);
+
+}
+
+void phases_app_experiment(CUcontext ctx, int nf, int k, int q) {
+	int *ds;
+	gpuErrCheck( cudaMalloc(&ds, sizeof(int)) );
+
+	int rep = 5;
+	int size = nf / pow(k+1, rep);
+
+	//init memMap
+	cudaMalloc(&ds, sizeof(int));
+	cudaMemcpy(ds, &size, sizeof(int), cudaMemcpyHostToDevice);
+	VectorMemMap a = VectorMemMap(ctx);
+	a.grow(size*sizeof(int)); kernelCallCheck();
+	
+	cudaEvent_t start, stop;
+	start_clock(start, stop);
+	for (int i = 0; i < rep; ++i) {
+		//fprintf(stderr, "insert %i\n", i);
+		a.grow((k+1)*size*sizeof(int)); kernelCallCheck();
+		test_insertk<<<gridSize(size, BSIZE), BSIZE>>>(a.getPointer(), size, ds, k); kernelCallCheck();
+
+		// aplanar
+		cudaMemcpy(&size, ds, sizeof(int), cudaMemcpyDeviceToHost);
+		//fprintf(stderr, "size: %d\n", size);
+
+		// simular q iteraciones
+		for (int j = 0; j < q; ++j) {
+			dummy_test<<<gridSize(size, BSIZE), BSIZE>>>(a.getPointer(), size); kernelCallCheck();
+		}
+	}
+	cudaDeviceSynchronize();
+	float time = stop_clock(start, stop);
+	printf("memMap,%d,%d,%d,%d,%f\n", nf, rep, k, q, time);
+
 }

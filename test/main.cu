@@ -2,10 +2,11 @@
 #include <cuda.h>
 #include <thrust/device_vector.h>
 #include "../common/utility.cuh"
-#include "../stdgpu/src/stdgpu/vector.cuh"
+//#include <stdgpu/vector.cuh>
+#include <vector.cuh>
 
 void run_experiment_thrust() {
-	int size = 1 << 19;
+	int size = 1e6;
 	int rep = 10;
 	int o_size = size;
 	int ratio = 1;
