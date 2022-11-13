@@ -30,7 +30,7 @@ void run_mlfv_NB() {
 	optimal_NB<NUM_BLOCKS>(lfv, size);
 }
 
-void run_mlfv64(int size, int r1, int r2) {
+void run_mlfv32(int size, int r1, int r2) {
 	int *a, *ha;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
@@ -47,7 +47,7 @@ void run_mlfv64(int size, int r1, int r2) {
 	run_experiment<NB>(lfv, size, r1, r2);
 }
 
-void run_mlfv1024(int size, int r1, int r2) {
+void run_mlfv512(int size, int r1, int r2) {
 	int *a, *ha;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
@@ -81,7 +81,7 @@ void run_static(int size, int r1, int r2) {
 	run_experiment(size, r1, r2);
 }
 
-void run_size_test1024(int size) {
+void run_size_test512(int size) {
 	int *a, *ha;
 	ha = new int[size];
 	for (int i = 0; i < size; ++i) {
@@ -144,7 +144,7 @@ void run_phases_app_memMap(int size, int k, int q) {
 int main(int argc, char **argv){
 	if (argc < 2) {
 		fprintf(stderr,"error, run as ./prog struct\n");
-		fprintf(stderr,"\tstructs: static(0) memMap(1) mlfv64(2) mlfv1024(3)\n");
+		fprintf(stderr,"\tstructs: static(0) memMap(1) mlfv512(2) mlfv32(3)\n");
 		return -1;
 	}
 
@@ -168,7 +168,7 @@ int main(int argc, char **argv){
 			return -1;
 		}
 		int n = atoi(argv[2]);
-		run_size_test1024(n);
+		run_size_test512(n);
 		return 0;
 	}
 	if (structure > 11) {
@@ -189,8 +189,8 @@ int main(int argc, char **argv){
 	switch (structure) {
 		case 0: run_static(size, r1, r2); break;
 		case 1: run_memMap(size, r1, r2); break;
-		case 2: run_mlfv1024(size, r1, r2); break;
-		case 3: run_mlfv64(size, r1, r2); break;
+		case 2: run_mlfv512(size, r1, r2); break;
+		case 3: run_mlfv32(size, r1, r2); break;
 	}
 
 	kernelCallCheck();
